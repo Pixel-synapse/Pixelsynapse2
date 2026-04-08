@@ -95,10 +95,17 @@
     ═══════════════════════════════ */
     #game-container {
       position: relative;
+      width: 800px;
+      height: 600px;
       border: 3px solid #222244;
       box-shadow: 0 0 40px #1a1a3a, 0 0 80px #0d0d1a;
       image-rendering: pixelated;
+      overflow: hidden;
     }
+    /* The Phaser canvas must fill the container exactly */
+    #game { width: 800px; height: 600px; display: block; }
+    #game canvas { display: block !important; width: 800px !important; height: 600px !important; }
+
     #game-container::after {
       content: '';
       position: absolute; top: 0; left: 0; right: 0; bottom: 0;
