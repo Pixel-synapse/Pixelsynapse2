@@ -1793,25 +1793,60 @@ function createTextures(scene) {
     ...[[36,36],[37,36],[38,36],[39,36],[40,36],[41,36],[42,36],[36,37],[37,37],[38,37],[39,37],[40,37],[41,37],[42,37],[36,38],[37,38],[38,38],[39,38],[40,38],[41,38],[42,38],[36,39],[37,39],[38,39],[39,39],[40,39],[41,39],[42,39],[36,40],[37,40],[38,40],[39,40],[40,40],[41,40],[42,40]],
   ].map(([x,y]) => `${x},${y}`));
 
-  // ── 4b. PROCEDURAL BUILDINGS — on road-grid spacing, avoiding roads+occupied ──
-  // Buildings placed every 6 tiles, 1 tile inside each road block
-  // Three variants: house_red (60%), house_blue (30%), shop (10%)
+  // ── 4b. TOWN CENTRE — shops clustered at main cross intersection ──
+  // Mirrors the reference doc: addBuilding(28,23,"shop"), (32,23), (30,20)
+  // Our tile coords are halved (TILE_SIZE=16 not 32) so we scale proportionally.
+  // Town square is at tiles 21-28; shops sit just outside on the roads.
+  const townCentreShops = [
+    [19, 19], [27, 19], [19, 29], [27, 29],   // corner shops near square
+    [23, 18], [24, 18],                         // top-road shops
+    [23, 30], [24, 30],                         // bottom-road shops
+  ];
+  townCentreShops.forEach(([tx2, ty2]) => {
+    if (roadSet.has(`${tx2},${ty2}`)) return;
+    drawBuilding(ctx, tx2, ty2, 5, 4, '#289048', '#e8f8e8', '', 'shop');
+    occupied.add(`${tx2},${ty2}`);
+  });
+
+  // ── 4c. RESIDENTIAL ROWS — houses in bands left and right of centre ──
+  // Left residential: columns 10-18, rows 10-40 in steps of 6
+  // Right residential: columns 30-44, rows 10-40 in steps of 6
+  const residentialLeft  = [];
+  const residentialRight = [];
+  for (let ry = 10; ry < 40; ry += 6) {
+    for (let rx = 10; rx < 18; rx += 6) residentialLeft.push([rx, ry]);
+    for (let rx = 30; rx < 44; rx += 6) residentialRight.push([rx, ry]);
+  }
+  const residentialAll = [...residentialLeft, ...residentialRight];
+  let rSeed = 100;
+  const rngR = (n) => { let x = Math.sin(n * 91.3) * 43758.5; return x - Math.floor(x); };
+  residentialAll.forEach(([rx, ry]) => {
+    if (roadSet.has(`${rx},${ry}`)) return;
+    if (occupied.has(`${rx},${ry}`)) return;
+    rSeed++;
+    const r = rngR(rSeed);
+    const isBlue = r > 0.5;
+    drawBuilding(ctx, rx, ry, 5, 4,
+      isBlue ? '#2848c0' : '#e82020',
+      isBlue ? '#e8eaf8' : '#f0e8c0',
+      isBlue ? 'HOUSE' : 'HOME',
+      isBlue ? 'house_blue' : 'house_red'
+    );
+    occupied.add(`${rx},${ry}`);
+  });
+
+  // ── 4d. PROCEDURAL BUILDINGS — fill remaining grid slots ──
   const rng = (seed) => { let x = Math.sin(seed) * 43758; return x - Math.floor(x); };
   let bldgSeed = 1;
   for (let ty2 = 2; ty2 < ROWS - 6; ty2++) {
     for (let tx2 = 2; tx2 < COLS - 6; tx2++) {
-      // Place at every 6-tile interval (shifted by 1 from road to leave gap)
       if ((tx2 - 1) % 6 !== 0 || (ty2 - 1) % 6 !== 0) continue;
-
-      // Skip if on road or town square or occupied by named building
       if (roadSet.has(`${tx2},${ty2}`)) continue;
       if (occupied.has(`${tx2},${ty2}`)) continue;
-      // Skip if too close to named buildings (border buffer)
-      if (tx2 < 14 && ty2 < 14) continue;   // NW quadrant — reserved
-      if (tx2 > 32 && ty2 < 14) continue;   // NE quadrant — reserved
-      if (tx2 < 14 && ty2 > 32) continue;   // SW quadrant — reserved
-      if (tx2 > 32 && ty2 > 32) continue;   // SE quadrant — reserved
-
+      if (tx2 < 14 && ty2 < 14) continue;
+      if (tx2 > 32 && ty2 < 14) continue;
+      if (tx2 < 14 && ty2 > 32) continue;
+      if (tx2 > 32 && ty2 > 32) continue;
       bldgSeed++;
       const r = rng(bldgSeed);
       let variant, roofCol, wallCol, lbl;
@@ -1826,21 +1861,43 @@ function createTextures(scene) {
     }
   }
 
-  // ── 5. RANDOM TREE CLUSTERS — shadows only in canvas ──
-  // Phaser tree objects (trunk+leaves) are added in spawnCityWorldObjects().
-  // We draw ground shadows here so they appear under the Phaser images.
+  // ── 5. PARK (top-left) + FOREST (bottom-right) + random tree shadows ──
+  // Park: tiles 2-18, rows 2-14 — dense green area NW of town
+  // Forest: tiles 30-48, rows 32-48 — dense trees SE
+  // Random clusters elsewhere avoid roads and buildings.
   const treeShadows = [];
   const rng2 = (n) => { let x = Math.sin(n * 127.1) * 43758.5; return x - Math.floor(x); };
-  for (let i = 0; i < 180; i++) {
-    const tx3 = Math.floor(rng2(i * 3 + 1) * COLS);
-    const ty3 = Math.floor(rng2(i * 3 + 2) * ROWS);
-    if (roadSet.has(`${tx3},${ty3}`)) continue;
-    if (occupied.has(`${tx3},${ty3}`)) continue;
+
+  function addTreeShadow(tx3, ty3) {
+    if (roadSet.has(`${tx3},${ty3}`)) return;
+    if (occupied.has(`${tx3},${ty3}`)) return;
     treeShadows.push([tx3, ty3]);
     ctx.fillStyle = 'rgba(0,0,0,0.16)';
     ctx.beginPath();
     ctx.ellipse(tx3*S + S/2, ty3*S + S - 2, 6, 3, 0, 0, Math.PI*2);
     ctx.fill();
+    // Slightly darker grass patch under tree
+    ctx.fillStyle = 'rgba(50,120,20,0.10)';
+    ctx.fillRect(tx3*S, ty3*S, S, S);
+  }
+
+  // Park area — top-left, 40 trees
+  for (let i = 0; i < 40; i++) {
+    const tx3 = 2  + Math.floor(rng2(i * 5 + 1) * 16);
+    const ty3 = 2  + Math.floor(rng2(i * 5 + 2) * 12);
+    addTreeShadow(tx3, ty3);
+  }
+  // Forest area — bottom-right, 60 trees
+  for (let i = 0; i < 60; i++) {
+    const tx3 = 30 + Math.floor(rng2(i * 7 + 10) * 18);
+    const ty3 = 32 + Math.floor(rng2(i * 7 + 11) * 16);
+    addTreeShadow(tx3, ty3);
+  }
+  // Scattered trees elsewhere — 60 random
+  for (let i = 0; i < 60; i++) {
+    const tx3 = Math.floor(rng2(i * 3 + 200) * COLS);
+    const ty3 = Math.floor(rng2(i * 3 + 201) * ROWS);
+    addTreeShadow(tx3, ty3);
   }
 
   worldGfx.refresh();
@@ -2069,7 +2126,46 @@ function spawnCityWorldObjects(scene) {
     for (let ty = 21; ty <= 28; ty++)
       for (let tx = 21; tx <= 28; tx++) roadSet2.add(`${tx},${ty}`);
 
-    const rngP = (seed) => { let x = Math.sin(seed) * 43758; return x - Math.floor(x); };
+    // ── TOWN CENTRE SHOP COLLIDERS ──
+    const townCentreShops2 = [[19,19],[27,19],[19,29],[27,29],[23,18],[24,18],[23,30],[24,30]];
+    townCentreShops2.forEach(([tx2, ty2]) => {
+      const px = tx2*T, py = ty2*T, bw = 5*T, bh = 4*T;
+      const collH = Math.round(bh*0.62);
+      const cb = scene.physics.add.staticImage(px+bw/2, py+collH/2, null).setVisible(false);
+      cb.setDisplaySize(bw-4, collH); cb.refreshBody();
+      gameState.worldObjects.push(cb); gameState.buildingGroup.add(cb);
+      const dz = gameState.doorGroup.create(px+bw/2, py+bh, null);
+      dz.setSize(32,20).setOrigin(0.5,0.5).setVisible(false).refreshBody();
+      dz.houseId='shop_se'; dz.houseLabel='SHOP'; dz.returnX=px+bw/2; dz.returnY=py+bh+28;
+      gameState.worldObjects.push(dz);
+    });
+
+    // ── RESIDENTIAL ROW COLLIDERS ──
+    const rngR2 = (n) => { let x = Math.sin(n*91.3)*43758.5; return x-Math.floor(x); };
+    let rSeed2 = 100;
+    for (let ry = 10; ry < 40; ry += 6) {
+      for (let rx = 10; rx < 18; rx += 6) { addResCollider(rx, ry); }
+      for (let rx = 30; rx < 44; rx += 6) { addResCollider(rx, ry); }
+    }
+    function addResCollider(rx, ry) {
+      rSeed2++;
+      if (roadSet2.has(`${rx},${ry}`)) return;
+      const px = rx*T, py = ry*T, bw = 5*T, bh = 4*T;
+      const collH = Math.round(bh*0.62);
+      const cb = scene.physics.add.staticImage(px+bw/2, py+collH/2, null).setVisible(false);
+      cb.setDisplaySize(bw-4, collH); cb.refreshBody();
+      gameState.worldObjects.push(cb); gameState.buildingGroup.add(cb);
+      const rm = scene.add.rectangle(px+bw/2, py, bw, 4, 0x000000, 0);
+      rm.isTop=true; rm.setDepth(py+1000);
+      gameState.worldObjects.push(rm); gameState._topObjects.push(rm);
+      const isBlue = rngR2(rSeed2) > 0.5;
+      const dz = gameState.doorGroup.create(px+bw/2, py+bh, null);
+      dz.setSize(32,20).setOrigin(0.5,0.5).setVisible(false).refreshBody();
+      dz.houseId = isBlue ? 'house_ne' : 'house_nw';
+      dz.houseLabel = isBlue ? 'HOUSE' : 'HOME';
+      dz.returnX=px+bw/2; dz.returnY=py+bh+28;
+      gameState.worldObjects.push(dz);
+    }
     let pSeed = 1;
 
     for (let ty2 = 2; ty2 < ROWS - 6; ty2++) {
