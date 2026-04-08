@@ -1809,15 +1809,8 @@ function createTextures(scene) {
     [10, 34, 'house_blue'], [16, 34, 'house_red'  ], [22, 34, 'house_green'],
     [28, 34, 'house_blue'], [40, 34, 'house_green'], [46, 34, 'house_red'  ],
   ];
-  const variantMap = {
-    house_red:   { rc:'#e82020', wc:'#f0e8c0', lbl:'HOME'  },
-    house_blue:  { rc:'#2848c0', wc:'#e8eaf8', lbl:'HOUSE' },
-    house_green: { rc:'#289048', wc:'#e8f8e0', lbl:'HOUSE' },
-  };
-  housePositions.forEach(([tx2, ty2, type]) => {
-    if (roadSet.has(`${tx2},${ty2}`) || occupied.has(`${tx2},${ty2}`)) return;
-    const { rc, wc, lbl } = variantMap[type];
-    drawBuilding(ctx, tx2, ty2, 4, 4, rc, wc, lbl, type);
+  housePositions.forEach(([tx2, ty2]) => {
+    markOcc(tx2, ty2, 4, 4);   // mark tiles occupied so trees don't spawn here
   });
 
   // ── 5. TREES — zone-based placement (reference doc pattern) ──
