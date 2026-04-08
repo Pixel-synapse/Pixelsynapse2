@@ -60,8 +60,8 @@ const PAL = {
 const WORLD_W         = 800;
 const WORLD_H         = 800;
 const PLAYER_SPEED    = 140;
-const TILE_SIZE       = 32;
-const NPC_INTERACT_DIST = 72;
+const TILE_SIZE       = 16;
+const NPC_INTERACT_DIST = 55;
 const SEND_INTERVAL   = 80;
 const CAM_LERP        = 0.09;   // style guide: 0.08–0.12
 const BOB_PERIOD      = 400;    // ms for idle bob cycle
@@ -1922,19 +1922,22 @@ function createTextures(scene) {
     player_left_b:  SPR_PLAYER_LEFT_B,
   };
   for (const [key, grid] of Object.entries(playerFrames)) {
-    const t = scene.textures.createCanvas(key, 32, 32);
+    const t = scene.textures.createCanvas(key, 16, 16);
     const c = t.getContext();
     c.imageSmoothingEnabled = false;
     drawSprite(c, grid, 0, 0, 1);
     t.refresh();
   }
+  console.log('[createTextures] ✓ Player textures:', Object.keys(playerFrames).join(', '));
 
   // ── NPC BASE SPRITE (fallback, gray) ──
-  const npcTex = scene.textures.createCanvas('npc_base', 32, 32);
+  const npcTex = scene.textures.createCanvas('npc_base', 16, 16);
   const nCtx = npcTex.getContext();
   nCtx.imageSmoothingEnabled = false;
   drawSprite(nCtx, SPR_NPC_IDLE, 0, 0, 1);
   npcTex.refresh();
+  console.log('[createTextures] ✓ NPC base texture ready (16×16 art, displayed at 32px via scale=2)');
+  console.log('[createTextures] ✓ World map drawn:', WORLD_W + 'x' + WORLD_H, 'tile=' + TILE_SIZE + 'px');
 }
 
 // ─────────────────────────────────────────────
@@ -2563,7 +2566,9 @@ class GameScene extends Phaser.Scene {
     // Local player — starts facing down
     gameState.mySprite = this.physics.add.sprite(gameState.myX, gameState.myY, 'player_down');
     gameState.mySprite.setCollideWorldBounds(true);
+    gameState.mySprite.setScale(2);   // 16px art → 32px display
     gameState.mySprite.setDepth(10);
+    console.log('[sprite] player_down loaded, scale=2, size=16→32px');
     this.cameras.main.startFollow(gameState.mySprite, true, CAM_LERP, CAM_LERP);
     this._playerDir = 'down';
     this._walkFrame = 0;
@@ -2693,7 +2698,7 @@ class GameScene extends Phaser.Scene {
     }
 
     if (!this.textures.exists(texKey)) {
-      const t = this.textures.createCanvas(texKey, 32, 32);
+      const t = this.textures.createCanvas(texKey, 16, 16);
       const ctx = t.getContext();
       ctx.imageSmoothingEnabled = false;
       drawSprite(ctx, SPR_NPC_IDLE, 0, 0, 1, overrides);
@@ -2704,7 +2709,7 @@ class GameScene extends Phaser.Scene {
     NPC_WALK_FRAMES.forEach((grid, i) => {
       const wKey = `${texKey}_w${i}`;
       if (!this.textures.exists(wKey)) {
-        const t = this.textures.createCanvas(wKey, 32, 32);
+        const t = this.textures.createCanvas(wKey, 16, 16);
         const ctx = t.getContext();
         ctx.imageSmoothingEnabled = false;
         drawSprite(ctx, grid, 0, 0, 1, overrides);
@@ -2713,10 +2718,12 @@ class GameScene extends Phaser.Scene {
     });
 
     const sprite = this.physics.add.sprite(npc.x, npc.y, texKey);
+    sprite.setScale(2);   // 16px art → 32px display
     sprite.setDepth(8);
     sprite.npcId = npc.id;
     sprite._walkFrame = 0;
     sprite._walkTimer = 0;
+    console.log(`[sprite] NPC ${npc.id} loaded → ${texKey}, color=${npc.color||'default'}`);
 
     gameState.npcSprites[npc.id] = { sprite, overrides };
 
@@ -2859,7 +2866,7 @@ class GameScene extends Phaser.Scene {
     gameState.myY = sp.y;
 
     // Name tag
-    this.myNameTag.setPosition(sp.x, sp.y-14);
+    this.myNameTag.setPosition(sp.x, sp.y-20);
     if (this.myNameTag.text !== myName) this.myNameTag.setText(myName);
 
     // ── OTHER PLAYERS — interpolated, integer coords ──
@@ -2914,7 +2921,7 @@ class GameScene extends Phaser.Scene {
       const label = getInteractLabel(nearbyNpc?.id, nearZone);
       if (this.interactPrompt.text !== label) this.interactPrompt.setText(label);
       this.interactPrompt.setVisible(true);
-      this.interactPrompt.setPosition(sp.x, sp.y - 28);
+      this.interactPrompt.setPosition(sp.x, sp.y - 36);
     } else {
       this.interactPrompt.setVisible(false);
     }
@@ -2995,7 +3002,7 @@ function addOtherPlayer(id, data) {
 
   const texKey=`oplayer_${id}`;
   if (!scene.textures.exists(texKey)) {
-    const t=scene.textures.createCanvas(texKey,32,32);
+    const t=scene.textures.createCanvas(texKey,16,16);
     const ctx=t.getContext();
     ctx.imageSmoothingEnabled=false;
     drawSprite(ctx, SPR_PLAYER_DOWN, 0, 0, 1, { H: data.color||PAL.interact, h: darkenHex(data.color||PAL.interact,25) });
@@ -3003,9 +3010,10 @@ function addOtherPlayer(id, data) {
   }
 
   const sprite=scene.physics.add.sprite(data.x,data.y,texKey);
+  sprite.setScale(2);   // 16px art → 32px display
   sprite.setDepth(9);
 
-  const label=scene.add.text(data.x,data.y-14,data.name||id,{
+  const label=scene.add.text(data.x,data.y-20,data.name||id,{
     fontSize:'5px', fontFamily:"'Press Start 2P'",
     color: data.color||PAL.interact, stroke:'#000000', strokeThickness:2
   }).setDepth(10).setOrigin(0.5,1);
