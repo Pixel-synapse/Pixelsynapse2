@@ -4314,7 +4314,7 @@ class HouseScene extends Phaser.Scene {
       .startFollow(this._player, true, 0.1, 0.1)
       .setBackgroundColor('#1a1a2e');
 
-    // ── Input ──
+    // ── Input — own cursor keys + dedicated E listener on this scene only ──
     this._cursors = this.input.keyboard.createCursorKeys();
     this._wasd    = this.input.keyboard.addKeys({
       up:    Phaser.Input.Keyboard.KeyCodes.W,
@@ -4322,7 +4322,18 @@ class HouseScene extends Phaser.Scene {
       left:  Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
     });
-    this._keyE = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+
+    // Use a scene-level keydown event so it doesn't share state with GameScene's E key
+    this._ePressed = false;
+    this._onKeyDown = (e) => {
+      if (e.code === 'KeyE') this._ePressed = true;
+    };
+    window.addEventListener('keydown', this._onKeyDown);
+
+    // Clean up listener when scene shuts down
+    this.events.once('shutdown', () => {
+      window.removeEventListener('keydown', this._onKeyDown);
+    });
 
     // ── Prompt text ──
     this._hintText = this.add.text(W/2, H - T*2 - 12, '', {
@@ -4369,20 +4380,20 @@ class HouseScene extends Phaser.Scene {
     sp.setDepth(sp.y);
 
     // ── Exit detection ──
-    // _nearExit is set by the physics.add.overlap callback in create().
-    // We read it here, then reset it — the callback will set it again
-    // next frame if the player is still on the mat.
     const wasNear = this._nearExit;
-    this._nearExit = false;   // reset every frame; callback re-sets if overlapping
+    this._nearExit = false;
+
+    const ePressed = this._ePressed;
+    this._ePressed = false;   // consume — reset each frame
 
     if (wasNear) {
       this._hintText.setText('[E] Exit building');
-      if (Phaser.Input.Keyboard.JustDown(this._keyE) && !this._exiting) {
-        this._exiting = true;  // latch — prevents firing twice
+      if (ePressed && !this._exiting) {
+        this._exiting = true;
         const d = this._data || {};
         gameState.myX = d.returnX || 400;
         gameState.myY = d.returnY || 400;
-        console.log(`[HouseScene] Exit → returnX:${gameState.myX} returnY:${gameState.myY}`);
+        console.log(`[HouseScene] Exit → (${gameState.myX}, ${gameState.myY})`);
         this.scene.start('GameScene');
       }
     } else {
