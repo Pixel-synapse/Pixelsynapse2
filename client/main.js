@@ -4214,107 +4214,69 @@ class HouseScene extends Phaser.Scene {
   constructor() { super({ key: 'HouseScene' }); }
 
   create(data) {
-    const T    = 16;   // tile size — matches main game
-    const COLS = 14;
-    const ROWS = 11;
-    const W    = COLS * T * 2;   // display at 2× = 448
-    const H    = ROWS * T * 2;   // display at 2× = 352
-
-    this._data = data || {};
-
-    // ── Interior floor canvas ──
-    const floorKey = `house_floor_${data?.houseId || 'default'}`;
-    if (!this.textures.exists(floorKey)) {
-      const tex = this.textures.createCanvas(floorKey, COLS * T, ROWS * T);
-      const ctx = tex.getContext();
-      ctx.imageSmoothingEnabled = false;
-      for (let ty = 0; ty < ROWS; ty++) {
-        for (let tx = 0; tx < COLS; tx++) {
-          drawInteriorTile(ctx, tx * T, ty * T);
-        }
-      }
-      // Wall strip across top (2 tiles)
-      for (let tx = 0; tx < COLS; tx++) {
-        drawWallTile(ctx, tx * T, 0);
-        drawWallTile(ctx, tx * T, T);
-      }
-      // Side walls
-      for (let ty = 2; ty < ROWS; ty++) {
-        drawWallTile(ctx, 0, ty * T);
-        drawWallTile(ctx, (COLS-1) * T, ty * T);
-      }
-      tex.refresh();
-    }
-
-    this.add.image(0, 0, floorKey).setOrigin(0, 0).setScale(2).setDepth(0);
-
-    // ── Furniture (drawn as coloured rects — simple but readable) ──
-    const furn = [
-      // [x, y, w, h, color, label]
-      [2*T*2, 2*T*2, 3*T*2, 2*T*2, 0xc07030, 'TABLE'],
-      [6*T*2, 2*T*2, 2*T*2, 2*T*2, 0x804010, 'CHAIR'],
-      [9*T*2, 2*T*2, 3*T*2, 2*T*2, 0xc07030, 'DESK'],
-      [2*T*2, 7*T*2, 2*T*2, 1*T*2, 0x2848c0, 'BED'],
-      [11*T*2,7*T*2, 2*T*2, 1*T*2, 0x2848c0, 'BED'],
-    ];
-    furn.forEach(([fx, fy, fw, fh, col, lbl]) => {
-      const rect = this.add.rectangle(fx + fw/2, fy + fh/2, fw, fh, col)
-        .setDepth(fy + fh);
-      this.add.text(fx + fw/2, fy + fh/2, lbl, {
-        fontSize: '5px', fontFamily: "'Press Start 2P'",
-        color: '#f8f8f8', stroke: '#181018', strokeThickness: 2,
-      }).setOrigin(0.5).setDepth(fy + fh + 1);
-    });
-
-    // ── Room name sign ──
-    const roomName = data?.houseLabel || 'BUILDING';
-    this.add.text(W/2, T*2 + 4, roomName, {
-      fontSize: '8px', fontFamily: "'Press Start 2P'",
-      color: '#f8d030', stroke: '#181018', strokeThickness: 3,
-      backgroundColor: '#00000088', padding: { x:6, y:3 },
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(9000);
-
-    // ── Player (reuse player_down texture from main game) ──
-    const startX = W / 2;
-    const startY = H - T * 2 * 3;   // spawn 3 tiles from bottom — above exit mat
-    this._player = this.physics.add.sprite(startX, startY, 'player_down');
-    this._player.setScale(2).setCollideWorldBounds(true).setDepth(startY);
-    // World bounds: full room width, top wall to bottom wall inclusive
-    // exitY = H - T*2 — must be INSIDE bounds so player can reach it
-    this.physics.world.setBounds(T * 2, T * 2 * 2, W - T * 4, H - T * 2);
-
-    // ── Exit zone — placed at the bottom of the room, inside world bounds ──
-    const exitX = W / 2;
-    const exitY = H - T * 2;          // last tile row — inside bounds
-    this._exitZone = this.add.zone(exitX, exitY, T * 2 * 4, T * 2 * 2);  // wide + tall
-    this.physics.world.enable(this._exitZone);
-    this._exitZone.body.setAllowGravity(false);
-    this._exitZone.body.moves = false;
-
-    // _nearExit is reset to false at the top of update() every frame.
-    // The overlap callback sets it back to true when player is on the mat.
-    // _exiting latches true the moment we call scene.start() so the
-    // transition cannot be triggered twice in consecutive frames.
-    this._nearExit = false;
+    this._data     = data || {};
     this._exiting  = false;
-    this.physics.add.overlap(this._player, this._exitZone, () => {
-      this._nearExit = true;
+    this._ePressed = false;
+
+    const T = 16;
+    const W = 480;
+    const H = 400;
+
+    // ── Floor ──
+    const tex = this.textures.createCanvas('hfloor_tmp', W, H);
+    const ctx = tex.getContext();
+    for (let ty = 0; ty < H / T; ty++) {
+      for (let tx = 0; tx < W / T; tx++) {
+        if (ty < 2 || ty >= H/T - 1 || tx === 0 || tx === W/T - 1)
+          drawWallTile(ctx, tx * T, ty * T);
+        else
+          drawInteriorTile(ctx, tx * T, ty * T);
+      }
+    }
+    tex.refresh();
+    this.add.image(0, 0, 'hfloor_tmp').setOrigin(0).setDepth(0);
+
+    // ── Furniture ──
+    const beds   = [[60, 80], [W - 100, 80]];
+    const tables  = [[W/2 - 40, 140]];
+    beds.forEach(([x, y]) => {
+      this.add.rectangle(x + 30, y + 25, 60, 50, 0x2848c0).setDepth(y + 50);
+      this.add.text(x + 30, y + 25, 'BED', { fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#fff' }).setOrigin(0.5).setDepth(y + 51);
+    });
+    tables.forEach(([x, y]) => {
+      this.add.rectangle(x + 40, y + 20, 80, 40, 0xc07030).setDepth(y + 40);
+      this.add.text(x + 40, y + 20, 'TABLE', { fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#fff' }).setOrigin(0.5).setDepth(y + 41);
     });
 
-    // Door visual — coloured mat on the floor at exit
-    this.add.rectangle(exitX, exitY, T*2*3, T*2, 0xc07030, 0.6).setDepth(exitY);
-    this.add.text(exitX, exitY, 'EXIT', {
-      fontSize: '5px', fontFamily: "'Press Start 2P'",
-      color: '#f8f8f8', stroke: '#181018', strokeThickness: 2,
-    }).setOrigin(0.5).setDepth(exitY + 1);
+    // ── Room label ──
+    const label = this._data.houseLabel || 'BUILDING';
+    this.add.text(W/2, 36, label + ' INTERIOR', {
+      fontSize:'7px', fontFamily:"'Press Start 2P'",
+      color:'#f8d030', stroke:'#181018', strokeThickness:3,
+      backgroundColor:'#00000088', padding:{x:5,y:3},
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(9000);
 
-    // ── Camera ──
-    this.cameras.main
-      .setBounds(0, 0, W, H)
-      .startFollow(this._player, true, 0.1, 0.1)
-      .setBackgroundColor('#1a1a2e');
+    // ── Exit door visual — at very bottom, clearly visible ──
+    const doorW = 80;
+    const doorH = 32;
+    const doorX = W / 2;
+    const doorY = H - doorH / 2 - 4;   // near bottom edge
+    this.add.rectangle(doorX, doorY, doorW, doorH, 0xe82020).setDepth(9000);
+    this.add.text(doorX, doorY, '[E] EXIT', {
+      fontSize:'6px', fontFamily:"'Press Start 2P'", color:'#fff',
+      stroke:'#181018', strokeThickness:2,
+    }).setOrigin(0.5).setDepth(9001);
 
-    // ── Input — own cursor keys + dedicated E listener on this scene only ──
+    // ── Player — spawns near bottom, above the exit ──
+    this._player = this.physics.add.sprite(W / 2, H - 80, 'player_down');
+    this._player.setScale(2).setDepth(H - 80);
+    // NO setCollideWorldBounds — player moves freely, we just check proximity
+
+    // ── Camera — static, shows full room ──
+    this.cameras.main.setBackgroundColor('#2a1a0a');
+    // No follow, no bounds — room fits in view
+
+    // ── Input ──
     this._cursors = this.input.keyboard.createCursorKeys();
     this._wasd    = this.input.keyboard.addKeys({
       up:    Phaser.Input.Keyboard.KeyCodes.W,
@@ -4323,33 +4285,19 @@ class HouseScene extends Phaser.Scene {
       right: Phaser.Input.Keyboard.KeyCodes.D,
     });
 
-    // Use a scene-level keydown event so it doesn't share state with GameScene's E key
-    this._ePressed = false;
-    this._onKeyDown = (e) => {
-      if (e.code === 'KeyE') this._ePressed = true;
-    };
+    // Dedicated E listener — window-level, not Phaser key system
+    this._onKeyDown = (ev) => { if (ev.code === 'KeyE') this._ePressed = true; };
     window.addEventListener('keydown', this._onKeyDown);
+    this.events.once('shutdown', () => window.removeEventListener('keydown', this._onKeyDown));
 
-    // Clean up listener when scene shuts down
-    this.events.once('shutdown', () => {
-      window.removeEventListener('keydown', this._onKeyDown);
-    });
+    // ── Hint ──
+    this._hint = this.add.text(W/2, H - 50, '', {
+      fontSize:'6px', fontFamily:"'Press Start 2P'",
+      color:'#fff', stroke:'#181018', strokeThickness:2,
+      backgroundColor:'#00000099', padding:{x:4,y:3},
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(9999);
 
-    // ── Prompt text ──
-    this._hintText = this.add.text(W/2, H - T*2 - 12, '', {
-      fontSize: '6px', fontFamily: "'Press Start 2P'",
-      color: '#f8f8f8', stroke: '#181018', strokeThickness: 3,
-      backgroundColor: '#00000099', padding: { x:4, y:3 },
-    }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(9999);
-
-    // ── HUD label ──
-    this.add.text(8, 8, `⬛ ${roomName} INTERIOR`, {
-      fontSize: '6px', fontFamily: "'Press Start 2P'",
-      color: '#78c850', stroke: '#181018', strokeThickness: 2,
-      backgroundColor: '#00000088', padding: { x:4, y:3 },
-    }).setScrollFactor(0).setDepth(9999);
-
-    console.log(`[HouseScene] Entered: ${data?.houseId}`);
+    console.log(`[HouseScene] created — ${label}`);
   }
 
   update() {
@@ -4370,39 +4318,36 @@ class HouseScene extends Phaser.Scene {
       sp.setVelocity(sp.body.velocity.x * 0.707, sp.body.velocity.y * 0.707);
     }
 
+    // Clamp to room manually (simple, no physics bounds weirdness)
+    sp.x = Phaser.Math.Clamp(sp.x, 24,  456);
+    sp.y = Phaser.Math.Clamp(sp.y, 40,  370);
+
     // Direction sprite
-    if      (L) sp.setTexture('player_left');
+    if (L) sp.setTexture('player_left');
     else if (R) sp.setTexture('player_right');
     else if (U) sp.setTexture('player_up');
     else if (D) sp.setTexture('player_down');
 
-    // Y-depth sorting inside house
     sp.setDepth(sp.y);
 
-    // ── Exit detection ──
-    const wasNear = this._nearExit;
-    this._nearExit = false;
+    // ── Exit — simple Y proximity check, no physics overlap needed ──
+    const nearExit = sp.y > 310;   // bottom 60px of room
+    this._hint.setText(nearExit ? '[E] Exit building' : '');
 
     const ePressed = this._ePressed;
-    this._ePressed = false;   // consume — reset each frame
+    this._ePressed = false;
 
-    if (wasNear) {
-      this._hintText.setText('[E] Exit building');
-      if (ePressed && !this._exiting) {
-        this._exiting = true;
-        const d = this._data || {};
-        gameState.myX = d.returnX || 400;
-        gameState.myY = d.returnY || 400;
-        console.log(`[HouseScene] Exit → (${gameState.myX}, ${gameState.myY})`);
-        this.scene.start('GameScene');
-      }
-    } else {
-      this._hintText.setText('');
+    if (nearExit && ePressed && !this._exiting) {
+      this._exiting = true;
+      const d = this._data || {};
+      gameState.myX = d.returnX || 400;
+      gameState.myY = d.returnY || 400;
+      console.log(`[HouseScene] exiting → GameScene (${gameState.myX}, ${gameState.myY})`);
+      this.scene.start('GameScene');
     }
   }
 }
 
-// ─────────────────────────────────────────────
 // PHASER CONFIG + BOOT
 // ─────────────────────────────────────────────
 const config = {
