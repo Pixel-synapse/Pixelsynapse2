@@ -4288,8 +4288,16 @@ class HouseScene extends Phaser.Scene {
     this.physics.world.enable(this._exitZone);
     this._exitZone.body.setAllowGravity(false);
     this._exitZone.body.moves = false;
-    // Note: overlap is checked directly in update() via this.physics.overlap()
-    // — same pattern as the reference document. No callback needed here.
+
+    // _nearExit is reset to false at the top of update() every frame.
+    // The overlap callback sets it back to true when player is on the mat.
+    // _exiting latches true the moment we call scene.start() so the
+    // transition cannot be triggered twice in consecutive frames.
+    this._nearExit = false;
+    this._exiting  = false;
+    this.physics.add.overlap(this._player, this._exitZone, () => {
+      this._nearExit = true;
+    });
 
     // Door visual — coloured mat on the floor at exit
     this.add.rectangle(exitX, exitY, T*2*3, T*2, 0xc07030, 0.6).setDepth(exitY);
@@ -4358,14 +4366,21 @@ class HouseScene extends Phaser.Scene {
     // Y-depth sorting inside house
     sp.setDepth(sp.y);
 
-    // ── Exit — direct overlap check every frame (reference doc pattern) ──
-    if (this.physics.overlap(this._player, this._exitZone)) {
+    // ── Exit detection ──
+    // _nearExit is set by the physics.add.overlap callback in create().
+    // We read it here, then reset it — the callback will set it again
+    // next frame if the player is still on the mat.
+    const wasNear = this._nearExit;
+    this._nearExit = false;   // reset every frame; callback re-sets if overlapping
+
+    if (wasNear) {
       this._hintText.setText('[E] Exit building');
-      if (Phaser.Input.Keyboard.JustDown(this._keyE)) {
+      if (Phaser.Input.Keyboard.JustDown(this._keyE) && !this._exiting) {
+        this._exiting = true;  // latch — prevents firing twice
         const d = this._data || {};
         gameState.myX = d.returnX || 400;
         gameState.myY = d.returnY || 400;
-        console.log(`[HouseScene] Exiting → ${d.houseId}, return (${gameState.myX}, ${gameState.myY})`);
+        console.log(`[HouseScene] Exit → returnX:${gameState.myX} returnY:${gameState.myY}`);
         this.scene.start('GameScene');
       }
     } else {
