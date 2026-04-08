@@ -109,6 +109,7 @@ const gameState = {
   doorGroup:       null,  // staticGroup — door entry zones
   _depthDebugText: null,  // HUD text updated every frame with player Y/depth
   _nearDoor:       null,  // door zone player is currently overlapping
+  _gameHour:       8,     // current in-game hour — updated by updateGameClock
 };
 
 // ─────────────────────────────────────────────
@@ -499,7 +500,13 @@ function applyReputation(rep) {
 function updateGameClock(time) {
   const t    = time?.hour !== undefined ? time : (time?.time || time);
   const hour = t?.hour ?? 8;
+  gameState._gameHour = hour;
   UISystem.updateGameClock(t?.label ?? '08:00', hour < 6 || hour >= 20);
+  // Drive day/night overlay whenever the hour changes
+  if (gameState.scene?._applyDayNight && hour !== gameState.scene._gameHour) {
+    gameState.scene._gameHour = hour;
+    gameState.scene._applyDayNight(hour);
+  }
 }
 
 // Shims kept for backward compatibility
@@ -2674,19 +2681,65 @@ class GameScene extends Phaser.Scene {
       color: '#ffcc44', stroke: '#000000', strokeThickness: 2, alpha: 0.8,
     }).setDepth(9).setOrigin(0.5, 0.5);
 
-    // Timers
     this.lastSendTime = 0;
     this.time.addEvent({ delay:2800, loop:true, callback:this.doNPCAmbientMove, callbackScope:this });
-    this.time.addEvent({ delay:500, loop:true, callback:drawMinimap });
+    this.time.addEvent({ delay:500,  loop:true, callback:drawMinimap });
 
     // Idle bob state
     this._bobTime = 0;
 
+    // ── ANIMATED FOUNTAIN ──
+    const FX = 24 * TILE_SIZE, FY = 24 * TILE_SIZE;
+    this._fountainGfx   = this.add.graphics().setDepth(FY + 1);
+    this._fountainPhase = 0;
+    this.time.addEvent({ delay:80, loop:true, callback:() => {
+      this._fountainPhase += 0.15;
+      const g = this._fountainGfx;
+      g.clear();
+      for (let ring = 0; ring < 3; ring++) {
+        const r = 10 + ring * 8 + Math.sin(this._fountainPhase + ring) * 3;
+        g.lineStyle(2, 0x70c8ff, 0.5 - ring * 0.12);
+        g.strokeCircle(FX, FY, r);
+      }
+      for (let j = 0; j < 6; j++) {
+        const angle  = this._fountainPhase + j * (Math.PI / 3);
+        const height = 8 + Math.sin(this._fountainPhase * 2 + j) * 4;
+        const jx = FX + Math.cos(angle) * 6;
+        const jy = FY - height;
+        g.fillStyle(0xc8f0ff, 0.9); g.fillRect(jx-1, jy, 2, height);
+        g.fillStyle(0xffffff,  0.8); g.fillRect(jx-1, jy-2, 2, 2);
+      }
+      const shimmer = Math.sin(this._fountainPhase * 3) * 0.3 + 0.7;
+      g.fillStyle(0x88e8ff, shimmer); g.fillCircle(FX, FY, 5);
+    }});
+
+    // ── DAY / NIGHT CYCLE ──
+    this._dayNightOverlay = this.add.rectangle(
+      WORLD_W/2, WORLD_H/2, WORLD_W, WORLD_H, 0x000820, 0
+    ).setDepth(8000).setScrollFactor(1);
+    this._gameHour = 8;
+    this._applyDayNight(8);
+
     // ── INIT UI SYSTEM ──
     UISystem.init(this);
 
-    console.log('🎮 GameScene ready');
+    console.log('\uD83C\uDFAE GameScene ready');
   }
+
+  _applyDayNight(hour) {
+    if (!this._dayNightOverlay) return;
+    let alpha = 0, tint = 0x000820;
+    if      (hour >= 22 || hour < 4)  { alpha = 0.72; tint = 0x000412; }
+    else if (hour >= 20)               { alpha = 0.50; tint = 0x100830; }
+    else if (hour >= 18)               { alpha = 0.28; tint = 0x301428; }
+    else if (hour >= 16)               { alpha = 0.08; tint = 0x200820; }
+    else if (hour >= 8  && hour < 16)  { alpha = 0.00; tint = 0x000820; }
+    else if (hour >= 6)                { alpha = 0.18; tint = 0x201010; }
+    else if (hour >= 4)                { alpha = 0.55; tint = 0x000818; }
+    this._dayNightOverlay.setFillStyle(tint, 1);
+    this.tweens.add({ targets:this._dayNightOverlay, alpha, duration:2000, ease:'Sine.easeInOut' });
+  }
+
 
   /**
    * Spawn an NPC with style-guide sprite:
@@ -3012,6 +3065,84 @@ class GameScene extends Phaser.Scene {
           this._portalSparkles.fillStyle(0xdd99ff, alpha);
           this._portalSparkles.fillRect(Math.round(sx) - 1, Math.round(sy) - 1, 2, 2);
         }
+      }
+    }
+
+    // ── ANIMATED FOUNTAIN ──
+    // Town square fountain at world tiles 23-25 (16px) → centre ~384, 384
+    if (this._fountainGfx) {
+      this._fountainPhase = (this._fountainPhase || 0) + this.game.loop.delta * 0.003;
+      const fp  = this._fountainPhase;
+      const fcx = 23 * TILE_SIZE + TILE_SIZE * 1.5;   // 392
+      const fcy = 23 * TILE_SIZE + TILE_SIZE * 1.5;   // 392
+      const gfx = this._fountainGfx;
+      gfx.clear();
+
+      // Water body — animated ripple rings
+      gfx.fillStyle(0x3898f8, 0.85);
+      gfx.fillCircle(fcx, fcy, 20);
+
+      // Three ripple rings expanding outward
+      for (let ring = 0; ring < 3; ring++) {
+        const rphase = (fp + ring * 0.7) % 2;          // 0-2 cycle
+        const r      = 8 + rphase * 14;                // 8→22px
+        const alpha  = Math.max(0, 0.6 - rphase * 0.3);
+        gfx.lineStyle(2, 0x70c8ff, alpha);
+        gfx.strokeCircle(fcx, fcy, r);
+      }
+
+      // Bright water highlights (static sparkle positions, brightness animated)
+      gfx.fillStyle(0xb8e8ff, 0.5 + Math.sin(fp * 2.1) * 0.3);
+      gfx.fillCircle(fcx - 5, fcy - 4, 3);
+      gfx.fillStyle(0xffffff, 0.4 + Math.sin(fp * 3.3) * 0.3);
+      gfx.fillCircle(fcx + 4, fcy + 3, 2);
+
+      // Fountain jet — 4 dots rising and fading
+      for (let j = 0; j < 4; j++) {
+        const jt    = ((fp * 1.5 + j * 0.25) % 1);   // 0-1 per drop
+        const jy    = fcy - 4 - jt * 16;
+        const jalpha= Math.max(0, 1 - jt * 1.5);
+        gfx.fillStyle(0xc8f0ff, jalpha * 0.9);
+        gfx.fillCircle(fcx + Math.sin(j * 1.3) * 3, Math.round(jy), 2);
+      }
+
+      // Stone rim
+      gfx.lineStyle(2, 0xd8c880, 0.9);
+      gfx.strokeCircle(fcx, fcy, 22);
+    }
+
+    // ── DAY/NIGHT CYCLE ──
+    // Maps hour → overlay alpha: dawn(5-7)=fade in, day(7-18)=0, dusk(18-20)=fade in, night(20-5)=max
+    if (this._dayNightOverlay) {
+      const hour = gameState._gameHour ?? 8;
+      let targetAlpha = 0;
+      if      (hour >= 20 || hour < 5)  targetAlpha = 0.62;        // night — deep dark blue tint
+      else if (hour >= 18)              targetAlpha = (hour - 18) / 2 * 0.62;   // dusk fade in
+      else if (hour < 6)               targetAlpha = (6 - hour)  / 1 * 0.62;   // pre-dawn still dark
+      else if (hour < 7)               targetAlpha = (7 - hour)        * 0.62;  // dawn fade out
+      else                              targetAlpha = 0;            // full day
+
+      // Smooth lerp toward target (0.02 per frame ≈ 3s transition)
+      this._dayNightAlpha = Phaser.Math.Linear(this._dayNightAlpha, targetAlpha, 0.02);
+      this._dayNightOverlay.setAlpha(this._dayNightAlpha);
+
+      // Star sparkles at night — scattered dots at high alpha
+      if (!this._starGfx) {
+        this._starGfx = this.add.graphics().setDepth(8001).setScrollFactor(0);
+        // Pre-generate random star positions (fixed)
+        this._stars = Array.from({length: 40}, () => ({
+          x: Math.random() * 800, y: Math.random() * 600,
+          phase: Math.random() * Math.PI * 2,
+        }));
+      }
+      this._starGfx.clear();
+      if (this._dayNightAlpha > 0.2) {
+        const starAlpha = (this._dayNightAlpha - 0.2) / 0.42;
+        this._stars.forEach(s => {
+          const twinkle = 0.5 + Math.sin(s.phase + time * 0.001) * 0.5;
+          this._starGfx.fillStyle(0xffffff, twinkle * starAlpha * 0.8);
+          this._starGfx.fillRect(s.x, s.y, 1, 1);
+        });
       }
     }
 
@@ -4216,98 +4347,225 @@ function _escHtml(str) {
 // Pressing E at the exit door returns to GameScene.
 // ═════════════════════════════════════════════════════════════════
 
+// ═════════════════════════════════════════════════════════════════
+// INTERIOR DEFINITIONS — unique layout per building id
+// ═════════════════════════════════════════════════════════════════
+const INTERIOR_DEFS = {
+  house_nw: {
+    bg: '#2a1a0a',
+    wallColor: '#f0e8c0',
+    furniture: [
+      { type:'bed',   x:60,  y:80,  w:70, h:50, col:0x2848c0, label:'BED'   },
+      { type:'bed',   x:340, y:80,  w:70, h:50, col:0x2848c0, label:'BED'   },
+      { type:'table', x:185, y:150, w:90, h:40, col:0xc07030, label:'TABLE' },
+      { type:'chair', x:155, y:195, w:30, h:28, col:0x804010, label:''      },
+      { type:'chair', x:295, y:195, w:30, h:28, col:0x804010, label:''      },
+      { type:'shelf', x:30,  y:140, w:40, h:80, col:0xa05820, label:'SHELF' },
+      { type:'shelf', x:410, y:140, w:40, h:80, col:0xa05820, label:'SHELF' },
+    ],
+    npcs: [
+      { name:'Resident', color:'#f8d030', x:200, y:200, lines:["Welcome to my home!", "Make yourself at home.", "Lovely weather today."] },
+    ],
+  },
+  house_ne: {
+    bg: '#0a1a2a',
+    wallColor: '#d0d8f0',
+    furniture: [
+      { type:'bed',   x:60,  y:80,  w:70, h:50, col:0x3060e0, label:'BED'   },
+      { type:'desk',  x:340, y:90,  w:80, h:50, col:0xc07030, label:'DESK'  },
+      { type:'chair', x:350, y:145, w:30, h:28, col:0x804010, label:''      },
+      { type:'shelf', x:30,  y:130, w:40, h:90, col:0xa05820, label:'BOOKS' },
+      { type:'shelf', x:410, y:130, w:40, h:90, col:0xa05820, label:'BOOKS' },
+      { type:'table', x:185, y:160, w:90, h:40, col:0xc07030, label:'TABLE' },
+    ],
+    npcs: [
+      { name:'Scholar', color:'#78c8f8', x:360, y:160, lines:["I'm studying the stars.", "Knowledge is power!", "Have you read this?"] },
+    ],
+  },
+  house_sw: {
+    bg: '#1a0a0a',
+    wallColor: '#f8e8d0',
+    furniture: [
+      { type:'bed',   x:60,  y:80,  w:70, h:50, col:0xe82020, label:'BED'   },
+      { type:'bed',   x:340, y:80,  w:70, h:50, col:0xe82020, label:'BED'   },
+      { type:'table', x:155, y:155, w:130,h:45, col:0xc07030, label:'DINING'},
+      { type:'chair', x:125, y:200, w:28, h:26, col:0x804010, label:''      },
+      { type:'chair', x:310, y:200, w:28, h:26, col:0x804010, label:''      },
+      { type:'plant', x:410, y:130, w:30, h:50, col:0x289048, label:'PLANT' },
+      { type:'plant', x:30,  y:130, w:30, h:50, col:0x289048, label:'PLANT' },
+    ],
+    npcs: [
+      { name:'Elder',   color:'#f8a030', x:220, y:200, lines:["This town has seen many seasons.", "Sit down, child.", "I remember when this was all fields."] },
+    ],
+  },
+  shop_se: {
+    bg: '#0a1a0a',
+    wallColor: '#e0f0e0',
+    furniture: [
+      { type:'counter', x:100, y:90,  w:260, h:35, col:0xc07030, label:'COUNTER' },
+      { type:'shelf',   x:30,  y:110, w:40,  h:120,col:0xa05820, label:'GOODS'  },
+      { type:'shelf',   x:410, y:110, w:40,  h:120,col:0xa05820, label:'STOCK'  },
+      { type:'barrel',  x:55,  y:250, w:40,  h:45, col:0x804010, label:'BARREL' },
+      { type:'barrel',  x:110, y:250, w:40,  h:45, col:0x804010, label:'BARREL' },
+      { type:'crate',   x:370, y:250, w:45,  h:40, col:0x906020, label:'CRATE'  },
+      { type:'crate',   x:420, y:250, w:45,  h:40, col:0x906020, label:'CRATE'  },
+    ],
+    npcs: [
+      { name:'Shopkeeper', color:'#78c850', x:230, y:130, lines:["Welcome to the shop!", "Best prices in town!", "Looking for something?","We have everything you need."] },
+    ],
+    shopItems: [
+      { name:'Health Potion', price: 10, icon:'🧪' },
+      { name:'Map Fragment',  price: 25, icon:'🗺️' },
+      { name:'Lucky Charm',   price: 15, icon:'🍀' },
+      { name:'Torch',         price:  5, icon:'🕯️' },
+    ],
+  },
+};
+
+// ═════════════════════════════════════════════════════════════════
+// HOUSE SCENE
+// ═════════════════════════════════════════════════════════════════
 class HouseScene extends Phaser.Scene {
   constructor() { super({ key: 'HouseScene' }); }
 
   create(data) {
-    this._data     = data || {};
-    this._exiting  = false;
-    this._ePressed = false;
+    this._data    = data || {};
+    this._exiting = false;
+    this._ePressed= false;
 
-    const T = 16;
-    const W = 480;
-    const H = 400;
+    const id  = this._data.houseId || 'house_nw';
+    const def = INTERIOR_DEFS[id] || INTERIOR_DEFS.house_nw;
+    const T   = 16;
+    const W   = 480;
+    const H   = 400;
 
-    // ── Floor — remove stale texture first so re-entry doesn't crash ──
+    this.cameras.main.setBackgroundColor(def.bg);
+
+    // ── Floor canvas ──
     if (this.textures.exists('hfloor_tmp')) this.textures.remove('hfloor_tmp');
     const tex = this.textures.createCanvas('hfloor_tmp', W, H);
     const ctx = tex.getContext();
-    for (let ty = 0; ty < H / T; ty++) {
-      for (let tx = 0; tx < W / T; tx++) {
-        if (ty < 2 || ty >= H/T - 1 || tx === 0 || tx === W/T - 1)
-          drawWallTile(ctx, tx * T, ty * T);
+    for (let ty = 0; ty < H/T; ty++) {
+      for (let tx = 0; tx < W/T; tx++) {
+        if (ty < 2 || ty >= H/T-1 || tx === 0 || tx === W/T-1)
+          drawWallTile(ctx, tx*T, ty*T);
         else
-          drawInteriorTile(ctx, tx * T, ty * T);
+          drawInteriorTile(ctx, tx*T, ty*T);
       }
     }
     tex.refresh();
     this.add.image(0, 0, 'hfloor_tmp').setOrigin(0).setDepth(0);
 
     // ── Furniture ──
-    const beds   = [[60, 80], [W - 100, 80]];
-    const tables  = [[W/2 - 40, 140]];
-    beds.forEach(([x, y]) => {
-      this.add.rectangle(x + 30, y + 25, 60, 50, 0x2848c0).setDepth(y + 50);
-      this.add.text(x + 30, y + 25, 'BED', { fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#fff' }).setOrigin(0.5).setDepth(y + 51);
+    def.furniture.forEach(f => {
+      this.add.rectangle(f.x + f.w/2, f.y + f.h/2, f.w, f.h, f.col)
+        .setDepth(f.y + f.h);
+      if (f.label) {
+        this.add.text(f.x + f.w/2, f.y + f.h/2, f.label, {
+          fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#f8f8f8',
+          stroke:'#181018', strokeThickness:2,
+        }).setOrigin(0.5).setDepth(f.y + f.h + 1);
+      }
     });
-    tables.forEach(([x, y]) => {
-      this.add.rectangle(x + 40, y + 20, 80, 40, 0xc07030).setDepth(y + 40);
-      this.add.text(x + 40, y + 20, 'TABLE', { fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#fff' }).setOrigin(0.5).setDepth(y + 41);
+
+    // ── Shop display if this is the shop ──
+    if (def.shopItems) {
+      this._buildShopUI(def.shopItems, W);
+    }
+
+    // ── Interior NPCs — simple walkers, no server sync ──
+    this._intNpcs = [];
+    (def.npcs || []).forEach(nd => {
+      const npcTex = `inpc_${nd.name.replace(/\s/g,'_')}`;
+      if (!this.textures.exists(npcTex)) {
+        const nt  = this.textures.createCanvas(npcTex, 16, 16);
+        const nc  = nt.getContext();
+        drawSprite(nc, SPR_NPC_IDLE, 0, 0, 1, { P: nd.color, p: darkenHex(nd.color, 30) });
+        nt.refresh();
+      }
+      const spr = this.physics.add.sprite(nd.x, nd.y, npcTex).setScale(2).setDepth(nd.y);
+      const tag = this.add.text(nd.x, nd.y - 20, nd.name, {
+        fontSize:'5px', fontFamily:"'Press Start 2P'",
+        color: nd.color, stroke:'#181018', strokeThickness:2,
+      }).setOrigin(0.5, 1).setDepth(nd.y + 1);
+      this._intNpcs.push({ spr, tag, lines: nd.lines, _walkTimer:0, _dir:1, _baseX: nd.x });
     });
 
     // ── Room label ──
     const label = this._data.houseLabel || 'BUILDING';
-    this.add.text(W/2, 36, label + ' INTERIOR', {
+    this.add.text(W/2, 36, label, {
       fontSize:'7px', fontFamily:"'Press Start 2P'",
       color:'#f8d030', stroke:'#181018', strokeThickness:3,
       backgroundColor:'#00000088', padding:{x:5,y:3},
     }).setOrigin(0.5).setScrollFactor(0).setDepth(9000);
 
-    // ── Exit door visual — at very bottom, clearly visible ──
-    const doorW = 80;
-    const doorH = 32;
-    const doorX = W / 2;
-    const doorY = H - doorH / 2 - 4;   // near bottom edge
-    this.add.rectangle(doorX, doorY, doorW, doorH, 0xe82020).setDepth(9000);
-    this.add.text(doorX, doorY, '[E] EXIT', {
+    // ── Exit door ──
+    this.add.rectangle(W/2, H - 20, 80, 32, 0xe82020).setDepth(9000);
+    this.add.text(W/2, H - 20, '[E] EXIT', {
       fontSize:'6px', fontFamily:"'Press Start 2P'", color:'#fff',
       stroke:'#181018', strokeThickness:2,
     }).setOrigin(0.5).setDepth(9001);
 
-    // ── Player — spawns near bottom, above the exit ──
-    this._player = this.physics.add.sprite(W / 2, H - 80, 'player_down');
-    this._player.setScale(2).setDepth(H - 80);
-    // NO setCollideWorldBounds — player moves freely, we just check proximity
-
-    // ── Camera — static, shows full room ──
-    this.cameras.main.setBackgroundColor('#2a1a0a');
-    // No follow, no bounds — room fits in view
+    // ── Player ──
+    this._player = this.physics.add.sprite(W/2, H - 80, 'player_down').setScale(2);
 
     // ── Input ──
     this._cursors = this.input.keyboard.createCursorKeys();
     this._wasd    = this.input.keyboard.addKeys({
-      up:    Phaser.Input.Keyboard.KeyCodes.W,
-      down:  Phaser.Input.Keyboard.KeyCodes.S,
-      left:  Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D,
+      up: Phaser.Input.Keyboard.KeyCodes.W, down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A, right: Phaser.Input.Keyboard.KeyCodes.D,
     });
-
-    // Dedicated E listener — window-level, not Phaser key system
+    this._ePressed = false;
     this._onKeyDown = (ev) => { if (ev.code === 'KeyE') this._ePressed = true; };
     window.addEventListener('keydown', this._onKeyDown);
     this.events.once('shutdown', () => window.removeEventListener('keydown', this._onKeyDown));
 
     // ── Hint ──
-    this._hint = this.add.text(W/2, H - 50, '', {
-      fontSize:'6px', fontFamily:"'Press Start 2P'",
-      color:'#fff', stroke:'#181018', strokeThickness:2,
+    this._hint = this.add.text(W/2, H - 48, '', {
+      fontSize:'6px', fontFamily:"'Press Start 2P'", color:'#fff',
+      stroke:'#181018', strokeThickness:2,
       backgroundColor:'#00000099', padding:{x:4,y:3},
     }).setOrigin(0.5).setScrollFactor(0).setDepth(9999);
 
-    console.log(`[HouseScene] created — ${label}`);
+    // ── NPC speech bubble ──
+    this._bubble = this.add.text(W/2, 80, '', {
+      fontSize:'6px', fontFamily:"'Press Start 2P'", color:'#f8f8f8',
+      stroke:'#181018', strokeThickness:2,
+      backgroundColor:'#000000bb', padding:{x:6,y:4},
+      wordWrap:{ width: 200 },
+    }).setOrigin(0.5, 1).setDepth(9999).setVisible(false);
+    this._bubbleTimer = 0;
+
+    // Periodic NPC speech
+    this.time.addEvent({ delay:4000, loop:true, callback:() => {
+      if (this._intNpcs.length === 0) return;
+      const n = this._intNpcs[0];
+      const line = n.lines[Math.floor(Math.random() * n.lines.length)];
+      this._bubble.setText(`${this._data.houseId==='shop_se'?'Shopkeeper':'NPC'}: ${line}`);
+      this._bubble.setPosition(n.spr.x, n.spr.y - 24).setVisible(true);
+      this._bubbleTimer = 3000;
+    }});
+
+    console.log(`[HouseScene] ${id} — ${label}`);
   }
 
-  update() {
+  _buildShopUI(items, W) {
+    // Shop inventory panel on the counter
+    const panelX = 100, panelY = 130;
+    items.forEach((item, i) => {
+      const ix = panelX + (i % 2) * 130 + 30;
+      const iy = panelY + Math.floor(i / 2) * 50;
+      this.add.rectangle(ix, iy, 110, 40, 0x1a3a1a).setDepth(200);
+      this.add.text(ix, iy - 8, item.icon + ' ' + item.name, {
+        fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#78c850',
+      }).setOrigin(0.5).setDepth(201);
+      this.add.text(ix, iy + 8, `◈ ${item.price}`, {
+        fontSize:'5px', fontFamily:"'Press Start 2P'", color:'#f8d030',
+      }).setOrigin(0.5).setDepth(201);
+    });
+  }
+
+  update(time, delta) {
     const sp    = this._player;
     const speed = 140;
     sp.setVelocity(0);
@@ -4321,26 +4579,41 @@ class HouseScene extends Phaser.Scene {
     if (R) sp.setVelocityX(speed);
     if (U) sp.setVelocityY(-speed);
     if (D) sp.setVelocityY(speed);
-    if ((L || R) && (U || D)) {
-      sp.setVelocity(sp.body.velocity.x * 0.707, sp.body.velocity.y * 0.707);
-    }
+    if ((L||R) && (U||D)) sp.setVelocity(sp.body.velocity.x*0.707, sp.body.velocity.y*0.707);
 
-    // Clamp to room manually (simple, no physics bounds weirdness)
-    sp.x = Phaser.Math.Clamp(sp.x, 24,  456);
-    sp.y = Phaser.Math.Clamp(sp.y, 40,  370);
+    sp.x = Phaser.Math.Clamp(sp.x, 24, 456);
+    sp.y = Phaser.Math.Clamp(sp.y, 40, 370);
 
-    // Direction sprite
-    if (L) sp.setTexture('player_left');
+    if      (L) sp.setTexture('player_left');
     else if (R) sp.setTexture('player_right');
     else if (U) sp.setTexture('player_up');
     else if (D) sp.setTexture('player_down');
-
     sp.setDepth(sp.y);
 
-    // ── Exit — simple Y proximity check, no physics overlap needed ──
-    const nearExit = sp.y > 310;   // bottom 60px of room
-    this._hint.setText(nearExit ? '[E] Exit building' : '');
+    // ── Interior NPC wander ──
+    this._intNpcs.forEach(n => {
+      n._walkTimer += delta;
+      if (n._walkTimer > 2000 + Math.random()*1000) {
+        n._walkTimer = 0;
+        n._dir = Math.random() < 0.5 ? -1 : 1;
+        this.tweens.add({
+          targets: n.spr, x: n._baseX + n._dir * (30 + Math.random()*40),
+          duration: 800, ease:'Sine.easeInOut',
+        });
+      }
+      n.tag.setPosition(n.spr.x, n.spr.y - 22);
+      n.spr.setDepth(n.spr.y);
+    });
 
+    // ── Speech bubble fade ──
+    if (this._bubbleTimer > 0) {
+      this._bubbleTimer -= delta;
+      if (this._bubbleTimer <= 0) this._bubble.setVisible(false);
+    }
+
+    // ── Exit ──
+    const nearExit = sp.y > 310;
+    this._hint.setText(nearExit ? '[E] Exit building' : '');
     const ePressed = this._ePressed;
     this._ePressed = false;
 
@@ -4349,10 +4622,7 @@ class HouseScene extends Phaser.Scene {
       const d = this._data || {};
       gameState.myX = d.returnX || 400;
       gameState.myY = d.returnY || 400;
-      if (gameState.mySprite) {
-        gameState.mySprite.setPosition(gameState.myX, gameState.myY);
-      }
-      console.log('[HouseScene] exiting → waking GameScene');
+      if (gameState.mySprite) gameState.mySprite.setPosition(gameState.myX, gameState.myY);
       this.scene.stop('HouseScene');
       this.scene.wake('GameScene');
     }
