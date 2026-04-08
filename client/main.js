@@ -1893,10 +1893,15 @@ function spawnCityWorldObjects(scene) {
     const px = b.tx * T, py = b.ty * T;
     const bw = b.tw * T, bh = b.th * T;
 
-    // Invisible physics rectangle covering the building footprint (collision)
-    const body = scene.physics.add.staticImage(px + bw/2, py + bh/2, null)
+    // Collision body — smaller than the full building so the player
+    // can reach the door at the base without being stopped by the wall.
+    // Strategy: cover only the upper 60% of the building (roof+wall).
+    // The bottom ~40% (where the door is) stays open for overlap.
+    const collH  = Math.round(bh * 0.62);   // collision covers top 62%
+    const collY  = py + collH / 2;           // centred on that region
+    const body   = scene.physics.add.staticImage(px + bw/2, collY, null)
       .setVisible(false);
-    body.setDisplaySize(bw, bh);
+    body.setDisplaySize(bw - 4, collH);      // 4px narrower than visual
     body.refreshBody();
     gameState.worldObjects.push(body);
     gameState.buildingGroup.add(body);
@@ -1906,20 +1911,25 @@ function spawnCityWorldObjects(scene) {
       .setDepth(py + bh);
     gameState.worldObjects.push(depthRef);
 
-    // ── DOOR ZONE — overlap trigger at base of building ──
-    // Small 24×16 zone centred on the door (bottom-centre of building)
+    // ── DOOR ZONE — overlap trigger at the base of each building ──
+    // Placed right at the bottom edge of the building (where the door is drawn).
+    // Uses staticGroup.create() for reliable Phaser overlap detection.
+    // Size is generous (36×24) so the player doesn't have to pixel-perfect align.
     const doorX = px + bw / 2;
-    const doorY = py + bh + 4;          // just below front wall = doorstep
-    const door = scene.physics.add.staticImage(doorX, doorY, null)
-      .setVisible(false);
-    door.setDisplaySize(24, 16);
+    const doorY = py + bh;                   // flush with the bottom of the building
+
+    const door = gameState.doorGroup.create(doorX, doorY, null);
+    door.setSize(36, 24);
+    door.setOrigin(0.5, 0.5);
+    door.setVisible(false);
     door.refreshBody();
-    door.houseId  = b.id;
+
+    // Tag the door with metadata for the scene transition
+    door.houseId    = b.id;
     door.houseLabel = b.label;
-    door.returnX  = doorX;
-    door.returnY  = doorY + 20;        // where player spawns on exit
+    door.returnX    = doorX;
+    door.returnY    = doorY + 28;            // player spawns below the door on exit
     gameState.worldObjects.push(door);
-    gameState.doorGroup.add(door);
   });
 
   // ════════════════════════════════════════════════
@@ -2619,14 +2629,8 @@ class GameScene extends Phaser.Scene {
       this.physics.add.collider(gameState.mySprite, gameState.buildingGroup);
     }
 
-    // ── DOOR OVERLAP — show [E] Enter prompt near building doors ──
-    if (gameState.doorGroup) {
-      this.physics.add.overlap(
-        gameState.mySprite,
-        gameState.doorGroup,
-        (player, door) => { gameState._nearDoor = door; }
-      );
-    }
+    // ── DOOR OVERLAP — checked directly in update() every frame ──
+    // (direct this.physics.overlap() call is more reliable than event callbacks)
 
     // Job progress bar (world-space, shown while a job is active)
     this.jobBar = this.add.graphics().setDepth(25).setVisible(false);
@@ -2862,14 +2866,16 @@ class GameScene extends Phaser.Scene {
     gameState.myY = sp.y;
 
     // ── Y-DEPTH SORTING — every frame ──
-    // Higher Y = closer to camera = renders in front of objects with lower Y.
-    // This makes the player walk behind trees when above them,
-    // and in front of trees when below them.
     sp.setDepth(sp.y);
     this.myNameTag.setDepth(sp.y + 1);
 
-    // Reset door proximity (overlap callback sets it again if still overlapping)
+    // ── DOOR PROXIMITY — direct overlap check (reliable, matches reference doc) ──
     gameState._nearDoor = null;
+    if (gameState.doorGroup) {
+      this.physics.overlap(sp, gameState.doorGroup, (player, door) => {
+        gameState._nearDoor = door;
+      });
+    }
 
     // Update debug text
     if (gameState._depthDebugText) {
@@ -4275,26 +4281,22 @@ class HouseScene extends Phaser.Scene {
     this._player.setScale(2).setCollideWorldBounds(true).setDepth(startY);
     this.physics.world.setBounds(T*2, T*2*2, W - T*2*2, H - T*2*3);
 
-    // ── Exit zone at bottom-centre (door) ──
+    // ── Exit zone at bottom-centre — door back to the town ──
     const exitX = W / 2;
     const exitY = H - T * 2;
-    const exitZone = this.add.zone(exitX, exitY, T * 2 * 2, T * 2);
-    this.physics.world.enable(exitZone);
-    exitZone.body.setAllowGravity(false);
-    exitZone.body.moves = false;
-    this._nearExit = false;
+    this._exitZone = this.add.zone(exitX, exitY, T * 2 * 3, T * 2);
+    this.physics.world.enable(this._exitZone);
+    this._exitZone.body.setAllowGravity(false);
+    this._exitZone.body.moves = false;
+    // Note: overlap is checked directly in update() via this.physics.overlap()
+    // — same pattern as the reference document. No callback needed here.
 
-    // Door visual marker
-    this.add.rectangle(exitX, exitY, T*2*2, T*2, 0xc07030, 0.5)
-      .setDepth(exitY + 1);
+    // Door visual — coloured mat on the floor at exit
+    this.add.rectangle(exitX, exitY, T*2*3, T*2, 0xc07030, 0.6).setDepth(exitY);
     this.add.text(exitX, exitY, 'EXIT', {
       fontSize: '5px', fontFamily: "'Press Start 2P'",
-      color: '#f8d030', stroke: '#181018', strokeThickness: 2,
-    }).setOrigin(0.5).setDepth(exitY + 2);
-
-    this.physics.add.overlap(this._player, exitZone, () => {
-      this._nearExit = true;
-    });
+      color: '#f8f8f8', stroke: '#181018', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(exitY + 1);
 
     // ── Camera ──
     this.cameras.main
@@ -4343,31 +4345,28 @@ class HouseScene extends Phaser.Scene {
     if (R) sp.setVelocityX(speed);
     if (U) sp.setVelocityY(-speed);
     if (D) sp.setVelocityY(speed);
-    if (L&&(U||D) || R&&(U||D)) sp.setVelocity(sp.body.velocity.x*0.707, sp.body.velocity.y*0.707);
+    if ((L || R) && (U || D)) {
+      sp.setVelocity(sp.body.velocity.x * 0.707, sp.body.velocity.y * 0.707);
+    }
 
-    // Y-depth inside house too
-    sp.setDepth(sp.y);
-
-    // Direction sprite swap
+    // Direction sprite
     if      (L) sp.setTexture('player_left');
     else if (R) sp.setTexture('player_right');
     else if (U) sp.setTexture('player_up');
     else if (D) sp.setTexture('player_down');
 
-    // Reset exit flag each frame (overlap callback sets it back if still touching)
-    const wasNear = this._nearExit;
-    this._nearExit = false;
+    // Y-depth sorting inside house
+    sp.setDepth(sp.y);
 
-    // Overlap is checked by Phaser automatically (callback fires if overlapping)
-    if (wasNear) {
+    // ── Exit — direct overlap check every frame (reference doc pattern) ──
+    if (this.physics.overlap(this._player, this._exitZone)) {
       this._hintText.setText('[E] Exit building');
       if (Phaser.Input.Keyboard.JustDown(this._keyE)) {
-        // Return player to the doorstep position in the town
         const d = this._data || {};
         gameState.myX = d.returnX || 400;
         gameState.myY = d.returnY || 400;
+        console.log(`[HouseScene] Exiting → ${d.houseId}, return (${gameState.myX}, ${gameState.myY})`);
         this.scene.start('GameScene');
-        return;
       }
     } else {
       this._hintText.setText('');
