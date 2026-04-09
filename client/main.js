@@ -1750,16 +1750,29 @@ function createTextures(scene) {
     }
   }
 
-  // ── 2. ROADS — main vertical + side path (reference doc pattern) ──
-  // Main road: vertical at col 30 (full height)
-  drawRoadV(30, 0, ROWS);
-  drawRoadV(31, 0, ROWS);  // 2 tiles wide
-  // Side path: horizontal at row 25, col 10–30 (connects west side to main road)
-  drawRoadH(10, 25, 22);
-  drawRoadH(10, 26, 22);  // 2 tiles wide
+  // ── 2. ROAD NETWORK — collect all road tiles, then draw (reference doc pattern) ──
+  // roads array: [[tx,ty], ...] — built up then drawn in one pass
+  const roads = [];
 
-  // ── 3. CENTER PLAZA — cobble at main road + side path intersection ──
-  // Plaza: tiles 28–33 × 23–27 (where side road meets main road)
+  // MAIN HORIZONTAL — full width at row 25
+  for (let tx = 0; tx < COLS; tx++) roads.push([tx, 25]);
+
+  // MAIN VERTICAL — full height at col 30
+  for (let ty = 0; ty < ROWS; ty++) roads.push([30, ty]);
+
+  // SIDE STREETS — 4 more roads creating a proper grid
+  for (let tx = 10; tx < 50; tx++) roads.push([tx, 15]);  // top H
+  for (let tx = 10; tx < 50; tx++) roads.push([tx, 35]);  // bottom H
+  for (let ty = 10; ty < 40; ty++) roads.push([15, ty]);  // left V
+  for (let ty = 10; ty < 40; ty++) roads.push([45, ty]);  // right V
+
+  // Draw all road tiles + register in roadSet
+  roads.forEach(([tx, ty]) => {
+    drawRoadTile(ctx, tx * S, ty * S);
+    roadSet.add(`${tx},${ty}`);
+  });
+
+  // ── 3. CENTER PLAZA — cobble at main cross intersection ──
   for (let ty = 23; ty <= 27; ty++) {
     for (let tx = 28; tx <= 33; tx++) {
       drawCobbleTile(ctx, tx * S, ty * S);
@@ -1768,7 +1781,6 @@ function createTextures(scene) {
   }
   ctx.strokeStyle = '#b09040'; ctx.lineWidth = 2;
   ctx.strokeRect(28*S+1, 23*S+1, 6*S-2, 5*S-2);
-  // Fountain in plaza centre
   for (let ty = 24; ty <= 25; ty++) {
     for (let tx = 29; tx <= 31; tx++) {
       drawWaterTile(ctx, tx * S, ty * S);
@@ -1777,57 +1789,61 @@ function createTextures(scene) {
   ctx.strokeStyle = '#f0d890'; ctx.lineWidth = 2;
   ctx.strokeRect(29*S, 24*S, 3*S, 2*S);
 
-  // ── 4. BUILDINGS ──
-  // All building art is rendered as real Phaser image objects in spawnCityWorldObjects().
-  // We only mark occupied tiles here so trees don't spawn on building footprints.
+  // ── 4. BUILDINGS — placeHouseNearRoad pattern ──
+  // Houses placed at road-side intervals, offset perpendicular to road.
+  // Mirrors: placeHouseNearRoad(x, 25, 0, -3) etc.
   const markOcc = (tx, ty, tw, th) => {
     for (let r = 0; r < th; r++) for (let c = 0; c < tw; c++) occupied.add(`${tx+c},${ty+r}`);
   };
 
-  // Named buildings (interior system)
+  // Named buildings (interior system — fixed positions)
   markOcc(5,5,6,5); markOcc(36,5,6,5); markOcc(5,36,7,5); markOcc(36,36,7,5);
 
-  // Town centre buildings — house_green pair at plaza entrance (ref: addBuilding(28,24) + (32,24))
-  markOcc(28,24,4,4); markOcc(32,24,4,4);
+  // Centre buildings
+  markOcc(28,22,4,4); markOcc(32,24,4,4);
 
-  // Shop at ref: addBuilding(34,28,"house_blue")
-  markOcc(34,28,4,4);
+  // placeHouseNearRoad — road-side house placement at every 6-tile interval
+  // Offset ±3 from road so houses sit just off the kerb
+  const rngH = (n) => { let x = Math.sin(n*73.1)*43758.5; return x-Math.floor(x); };
+  let hSeed = 0;
+  function placeHouseNearRoad(roadX, roadY, offX, offY) {
+    const tx = roadX + offX, ty = roadY + offY;
+    if (tx < 1 || ty < 1 || tx >= COLS-4 || ty >= ROWS-4) return;
+    if (roadSet.has(`${tx},${ty}`) || occupied.has(`${tx},${ty}`)) return;
+    markOcc(tx, ty, 4, 4);
+  }
 
-  // Explicit house positions — matches reference doc positions array exactly
-  const housePositions = [
-    [12,10,'house_red' ], [18,12,'house_blue' ], [22, 9,'house_green'],
-    [14,30,'house_blue'], [20,34,'house_red'  ], [24,28,'house_green'],
-    [40,12,'house_blue'], [45,15,'house_red'  ], [46,10,'house_green'],
-    [42,35,'house_red' ], [48,38,'house_blue' ], [44,30,'house_green'],
-  ];
-  housePositions.forEach(([tx2, ty2]) => markOcc(tx2, ty2, 4, 4));
+  // TOP SIDE of main H road (row 25), offset -3 (above road)
+  for (let tx = 5; tx < 55; tx += 6) placeHouseNearRoad(tx, 25, 0, -3);
+  // BOTTOM SIDE of main H road, offset +3 (below road)
+  for (let tx = 5; tx < 55; tx += 6) placeHouseNearRoad(tx, 25, 0,  3);
+  // LEFT SIDE of main V road (col 30), offset -3
+  for (let ty = 5; ty < 45; ty += 6) placeHouseNearRoad(30, ty, -3, 0);
+  // RIGHT SIDE of main V road, offset +3
+  for (let ty = 5; ty < 45; ty += 6) placeHouseNearRoad(30, ty,  3, 0);
 
-  // ── 5. TREES — addTreeCluster pattern (cx, cy, count=10, radius=3) ──
-  // Mirrors: this.addTreeCluster(8,8); this.addTreeCluster(50,40); this.addTreeCluster(20,40)
+  // SIDE STREET houses — alongside H streets at rows 15 and 35
+  for (let tx = 10; tx < 50; tx += 6) placeHouseNearRoad(tx, 15, 0, -2);
+  for (let tx = 10; tx < 50; tx += 6) placeHouseNearRoad(tx, 35, 0,  2);
+  // SIDE STREET houses — alongside V streets at cols 15 and 45
+  for (let ty = 10; ty < 40; ty += 6) placeHouseNearRoad(15, ty, -2, 0);
+  for (let ty = 10; ty < 40; ty += 6) placeHouseNearRoad(45, ty,  2, 0);
+
+  // ── 5. TREES — edge-only placement (reference doc: x<5||x>55||y<5||y>45) ──
   const treeShadows = [];
   const rng2 = (n) => { let x = Math.sin(n*127.1)*43758.5; return x-Math.floor(x); };
 
-  function addTreeCluster(cx, cy, count) {
-    for (let i = 0; i < (count || 10); i++) {
-      // Scatter ±3 tiles around centre (mirrors Phaser.Math.Between(-3,3))
-      const dx2 = Math.floor((rng2(cx*31+cy*7+i*3+1) * 2 - 1) * 3.5);
-      const dy2 = Math.floor((rng2(cx*31+cy*7+i*3+2) * 2 - 1) * 3.5);
-      const tx3 = cx + dx2, ty3 = cy + dy2;
-      if (tx3 < 0 || ty3 < 0 || tx3 >= COLS || ty3 >= ROWS) continue;
-      if (roadSet.has(`${tx3},${ty3}`) || occupied.has(`${tx3},${ty3}`)) continue;
-      treeShadows.push([tx3, ty3]);
-      ctx.fillStyle = 'rgba(0,0,0,0.16)';
-      ctx.beginPath(); ctx.ellipse(tx3*S+S/2, ty3*S+S-2, 6, 3, 0, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle = 'rgba(50,120,20,0.12)'; ctx.fillRect(tx3*S, ty3*S, S, S);
-    }
+  for (let i = 0; i < 60; i++) {
+    const tx3 = Math.floor(rng2(i*3+1) * COLS);
+    const ty3 = Math.floor(rng2(i*3+2) * ROWS);
+    // Edge only — border wilderness (mirrors: if x<5||x>55||y<5||y>45)
+    if (tx3 >= 5 && tx3 <= 45 && ty3 >= 5 && ty3 <= 45) continue;
+    if (roadSet.has(`${tx3},${ty3}`) || occupied.has(`${tx3},${ty3}`)) continue;
+    treeShadows.push([tx3, ty3]);
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.beginPath(); ctx.ellipse(tx3*S+S/2, ty3*S+S-2, 6, 3, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(50,120,20,0.12)'; ctx.fillRect(tx3*S, ty3*S, S, S);
   }
-
-  // Three named clusters — matches reference doc exactly
-  addTreeCluster(8,  8,  12);  // NW park cluster
-  addTreeCluster(50, 40, 15);  // SE forest cluster
-  addTreeCluster(20, 40, 12);  // SW forest cluster
-  // Extra density — east side wilderness
-  addTreeCluster(48, 10, 10);
 
   worldGfx.refresh();
   console.log('[createTextures] ✓ Road-grid town drawn (50×50 tiles, road every 8, procedural buildings)');
@@ -2165,35 +2181,51 @@ function spawnCityWorldObjects(scene) {
     gameState.worldObjects.push(door);
   });
 
-  // ── DYNAMIC BUILDING COLLIDERS — matches createTextures layout exactly ──
+  // ── DYNAMIC BUILDING COLLIDERS — mirrors createTextures road-side placement ──
   {
     const COLS = WORLD_W / T, ROWS = WORLD_H / T;
 
-    // Road set: V col 30+31, H row 25+26 (side path cols 10-31)
+    // Build roadSet matching roads array in createTextures
     const roadSet2 = new Set();
-    for (let ty = 0; ty < ROWS; ty++) { roadSet2.add(`30,${ty}`); roadSet2.add(`31,${ty}`); }
-    for (let tx = 10; tx <= 31; tx++) { roadSet2.add(`${tx},25`); roadSet2.add(`${tx},26`); }
+    const addRoad = (tx, ty) => { roadSet2.add(`${tx},${ty}`); };
+    for (let tx = 0; tx < COLS; tx++) addRoad(tx, 25);   // main H
+    for (let ty = 0; ty < ROWS; ty++) addRoad(30, ty);   // main V
+    for (let tx = 10; tx < 50; tx++) { addRoad(tx, 15); addRoad(tx, 35); }  // side H
+    for (let ty = 10; ty < 40; ty++) { addRoad(15, ty); addRoad(45, ty); }  // side V
     // Plaza
     for (let ty = 23; ty <= 27; ty++) for (let tx = 28; tx <= 33; tx++) roadSet2.add(`${tx},${ty}`);
 
-    // Helper: add visible image + collision + isTop roof + door for any building
-    function addBldgCollider(tx2, ty2, tw, th, houseId, houseLabel, texKey) {
-      if (roadSet2.has(`${tx2},${ty2}`)) return;
-      const px = tx2*T, py = ty2*T, bw = tw*T, bh = th*T;
-      const key = texKey || 'house_red';
+    const occupied2 = new Set();
+    // Named buildings
+    ['5,5','36,5','5,36','36,36'].forEach(k => occupied2.add(k));
 
-      // Visible base image — Y-sorted
-      const bi = scene.add.image(px, py, key).setOrigin(0,0).setDisplaySize(bw, bh).setDepth(py+bh);
+    // Helper — add visible image + collision + isTop + door
+    const rngH2 = (n) => { let x = Math.sin(n*73.1)*43758.5; return x-Math.floor(x); };
+    let hSeed2 = 0;
+    const houseTypes2 = ['house_red','house_blue','house_green'];
+
+    function addBldgCollider(tx2, ty2) {
+      if (tx2 < 1 || ty2 < 1 || tx2 >= COLS-4 || ty2 >= ROWS-4) return;
+      if (roadSet2.has(`${tx2},${ty2}`) || occupied2.has(`${tx2},${ty2}`)) return;
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) occupied2.add(`${tx2+c},${ty2+r}`);
+
+      hSeed2++;
+      const type = houseTypes2[Math.floor(rngH2(hSeed2) * 3)];
+      const hId  = type === 'house_blue' ? 'house_ne' : type === 'house_green' ? 'house_sw' : 'house_nw';
+      const px = tx2*T, py = ty2*T, bw = 4*T, bh = 4*T;
+
+      // Visible base image
+      const bi = scene.add.image(px, py, type).setOrigin(0,0).setDisplaySize(bw,bh).setDepth(py+bh);
       gameState.worldObjects.push(bi);
 
-      // Roof image — isTop, always above player
-      const ri = scene.add.image(px, py, key).setOrigin(0,0)
+      // Roof image — isTop
+      const ri = scene.add.image(px, py, type).setOrigin(0,0)
         .setDisplaySize(bw, Math.round(bh*0.4))
         .setCrop(0, 0, 64, Math.round(64*0.4));
-      ri.isTop=true; ri.setDepth(py+1000);
+      ri.isTop = true; ri.setDepth(py+1000);
       gameState.worldObjects.push(ri); gameState._topObjects.push(ri);
 
-      // Collision (upper 62%)
+      // Collision
       const collH = Math.round(bh*0.62);
       const cb = scene.physics.add.staticImage(px+bw/2, py+collH/2, null).setVisible(false);
       cb.setDisplaySize(bw-4, collH); cb.refreshBody();
@@ -2202,27 +2234,20 @@ function spawnCityWorldObjects(scene) {
       // Door
       const dz = gameState.doorGroup.create(px+bw/2, py+bh, null);
       dz.setSize(36,24).setOrigin(0.5,0.5).setVisible(false).refreshBody();
-      dz.houseId=houseId; dz.houseLabel=houseLabel;
-      dz.returnX=px+bw/2; dz.returnY=py+bh+28;
+      dz.houseId    = hId;
+      dz.houseLabel = type === 'house_red' ? 'HOME' : 'HOUSE';
+      dz.returnX    = px+bw/2; dz.returnY = py+bh+28;
       gameState.worldObjects.push(dz);
     }
 
-    // ── TOWN CENTRE BUILDINGS — house_green pair + shop (ref: addBuilding) ──
-    addBldgCollider(28, 24, 4, 4, 'house_nw',  'PLAZA',  'house_green');
-    addBldgCollider(32, 24, 4, 4, 'house_ne',  'CENTRE', 'house_green');
-    addBldgCollider(34, 28, 4, 4, 'shop_se',   'SHOP',   'house_blue');
+    // Centre buildings
+    addBldgCollider(28, 22); addBldgCollider(32, 24);
 
-    // ── HOUSE POSITIONS — matches reference doc positions array ──
-    const housePositions2 = [
-      [12,10,'house_red' ], [18,12,'house_blue' ], [22, 9,'house_green'],
-      [14,30,'house_blue'], [20,34,'house_red'  ], [24,28,'house_green'],
-      [40,12,'house_blue'], [45,15,'house_red'  ], [46,10,'house_green'],
-      [42,35,'house_red' ], [48,38,'house_blue' ], [44,30,'house_green'],
-    ];
-    housePositions2.forEach(([tx2,ty2,type]) => {
-      const hId = type==='house_blue' ? 'house_ne' : type==='house_green' ? 'house_sw' : 'house_nw';
-      addBldgCollider(tx2, ty2, 4, 4, hId, type==='house_red'?'HOME':'HOUSE', type);
-    });
+    // Road-side houses — same intervals as createTextures placeHouseNearRoad
+    for (let tx = 5; tx < 55; tx += 6) { addBldgCollider(tx, 22); addBldgCollider(tx, 28); }  // main H ±3
+    for (let ty = 5; ty < 45; ty += 6) { addBldgCollider(27, ty); addBldgCollider(33, ty); }  // main V ±3
+    for (let tx = 10; tx < 50; tx += 6) { addBldgCollider(tx, 13); addBldgCollider(tx, 37); }  // side H ±2
+    for (let ty = 10; ty < 40; ty += 6) { addBldgCollider(13, ty); addBldgCollider(47, ty); }  // side V ±2
   }
 
   // ════════════════════════════════════════════════
