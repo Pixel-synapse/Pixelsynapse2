@@ -2103,83 +2103,68 @@ function spawnCityWorldObjects(scene) {
     gameState.treeGroup.add(body);
   });
 
-  // ════════════════════════════════════════════════
-  // DEPTH-SORTED BUILDINGS — drawn as tinted rectangles
-  // (the actual art is in the world canvas; these are
-  //  invisible physics bodies + depth-key images)
-  // ════════════════════════════════════════════════
+  // ── DEPTH-SORTED BUILDINGS ──
 
-  // Buildings [tileX, tileY, tileW, tileH, roofColor, label]
-  const buildingDefs = [
-    { tx:5,  ty:5,  tw:6, th:5, color:'#e82020', label:'HOME',    id:'house_nw' },
-    { tx:36, ty:5,  tw:6, th:5, color:'#2848c0', label:'HOUSE',   id:'house_ne' },
-    { tx:5,  ty:36, tw:7, th:5, color:'#c82018', label:"ELDER'S", id:'house_sw' },
-    { tx:36, ty:36, tw:7, th:5, color:'#289048', label:'SHOP',    id:'shop_se'  },
-  ];
+  if (!gameState.buildingGroup) gameState.buildingGroup = scene.physics.add.staticGroup();
+  if (!gameState.doorGroup)     gameState.doorGroup     = scene.physics.add.staticGroup();
 
-  if (!gameState.buildingGroup) {
-    gameState.buildingGroup = scene.physics.add.staticGroup();
+  // ── addBuilding(tx, ty, type, houseId, label) ──
+  // Named reference doc pattern: addBuilding(5, 5, "house_red")
+  // Places a visible image + roof isTop + collision + door zone at tile coords.
+  function addBuilding(tx, ty, type, houseId, label) {
+    const px = tx*T, py = ty*T, bw = 4*T, bh = 4*T;
+    const texKey = type || 'house_red';
+    // Base image — Y-sorted
+    const bi = scene.add.image(px, py, texKey).setOrigin(0,0).setDisplaySize(bw,bh).setDepth(py+bh);
+    gameState.worldObjects.push(bi);
+    // Roof — isTop
+    const ri = scene.add.image(px, py, texKey).setOrigin(0,0)
+      .setDisplaySize(bw, Math.round(bh*0.4)).setCrop(0,0,64,Math.round(64*0.4));
+    ri.isTop = true; ri.setDepth(py+1000);
+    gameState.worldObjects.push(ri); gameState._topObjects.push(ri);
+    // Collision — hitbox size 28×16 upper portion (ref doc: hitbox.setSize(28,16))
+    const collH = Math.round(bh*0.62);
+    const cb = scene.physics.add.staticImage(px+bw/2, py+collH/2, null).setVisible(false);
+    cb.setDisplaySize(bw-4, collH); cb.refreshBody();
+    gameState.worldObjects.push(cb); gameState.buildingGroup.add(cb);
+    // Door zone
+    const dz = gameState.doorGroup.create(px+bw/2, py+bh, null);
+    dz.setSize(36,24).setOrigin(0.5,0.5).setVisible(false).refreshBody();
+    dz.houseId    = houseId || 'house_nw';
+    dz.houseLabel = label   || (type === 'house_red' ? 'HOME' : 'HOUSE');
+    dz.returnX    = px+bw/2; dz.returnY = py+bh+28;
+    gameState.worldObjects.push(dz);
   }
-  if (!gameState.doorGroup) {
-    gameState.doorGroup = scene.physics.add.staticGroup();
+
+  // ── addTree(tx, ty) ──
+  // Named reference doc pattern: addTree(2, 3)
+  // Places trunk+leaves at exact tile coords (no cluster scatter).
+  function addTree(tx, ty) {
+    const wx = tx * T + T/2, wy = ty * T + T/2;
+    const trunk = scene.add.image(wx, wy+4, 'tree_trunk').setScale(2);
+    trunk.setDepth(wy+4);
+    gameState.worldObjects.push(trunk);
+    const leaves = scene.add.image(wx, wy-8, 'tree_leaves').setScale(2);
+    leaves.isTop = true; leaves.setDepth(wy+1000);
+    gameState.worldObjects.push(leaves); gameState._topObjects.push(leaves);
+    const body = scene.physics.add.staticImage(wx, wy+10, null).setVisible(false);
+    body.setDisplaySize(12,8); body.refreshBody();
+    gameState.worldObjects.push(body); gameState.treeGroup.add(body);
   }
 
-  buildingDefs.forEach(b => {
-    const px = b.tx * T, py = b.ty * T;
-    const bw = b.tw * T, bh = b.th * T;
+  // ── NAMED BUILDINGS — reference doc style: addBuilding(x, y, type) ──
+  // House 1 — NW (red roof)
+  addBuilding(5,  5,  'house_red',  'house_nw', 'HOME');
+  // House 2 — NE (blue roof)
+  addBuilding(36, 5,  'house_blue', 'house_ne', 'HOUSE');
+  // House 3 — SW (red roof, elder's home)
+  addBuilding(5,  36, 'house_red',  'house_sw', "ELDER'S");
+  // Shop — SE (green roof)
+  addBuilding(36, 36, 'shop_tex',   'shop_se',  'SHOP');
 
-    // ── VISIBLE BUILDING IMAGE — base (Y-sorted with player) ──
-    // Displayed at scale so our 64px canvas texture fills the building footprint.
-    // scaleX = bw/64, scaleY = bh/64
-    const texKey = b.id === 'shop_se' ? 'shop_tex'
-                 : b.id === 'house_nw' || b.id === 'house_sw' ? 'house_red'
-                 : b.id === 'house_ne' ? 'house_blue'
-                 : 'house_red';
-    const baseImg = scene.add.image(px, py, texKey)
-      .setOrigin(0, 0)
-      .setDisplaySize(bw, bh)
-      .setDepth(py + bh);  // bottom edge of building — Y-sorted
-    gameState.worldObjects.push(baseImg);
-
-    // ── ROOF IMAGE — isTop, always above player ──
-    // Upper 40% of building = the roof portion.
-    const roofH = Math.round(bh * 0.4);
-    const roofImg = scene.add.image(px, py, texKey)
-      .setOrigin(0, 0)
-      .setDisplaySize(bw, roofH)
-      .setCrop(0, 0, 64, Math.round(64 * 0.4));
-    roofImg.isTop = true;
-    roofImg.setDepth(py + 1000);
-    gameState.worldObjects.push(roofImg);
-    gameState._topObjects.push(roofImg);
-
-    // Collision body — upper 62% (player can reach door at base)
-    const collH  = Math.round(bh * 0.62);
-    const collY  = py + collH / 2;
-    const body   = scene.physics.add.staticImage(px + bw/2, collY, null)
-      .setVisible(false);
-    body.setDisplaySize(bw - 4, collH);
-    body.refreshBody();
-    gameState.worldObjects.push(body);
-    gameState.buildingGroup.add(body);
-
-    // ── DOOR ZONE ──
-    const doorX = px + bw / 2;
-    const doorY = py + bh;
-
-    const door = gameState.doorGroup.create(doorX, doorY, null);
-    door.setSize(36, 24);
-    door.setOrigin(0.5, 0.5);
-    door.setVisible(false);
-    door.refreshBody();
-
-    // Tag the door with metadata for the scene transition
-    door.houseId    = b.id;
-    door.houseLabel = b.label;
-    door.returnX    = doorX;
-    door.returnY    = doorY + 28;            // player spawns below the door on exit
-    gameState.worldObjects.push(door);
-  });
+  // ── EXPLICIT CORNER TREES — ref doc: addTree(2,3); addTree(17,3) etc. ──
+  // 4 trees at map corners (always placed, not procedural)
+  addTree(2, 2); addTree(47, 2); addTree(2, 47); addTree(47, 47);
 
   // ── DYNAMIC BUILDING COLLIDERS — mirrors createTextures road-side placement ──
   {
