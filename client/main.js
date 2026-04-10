@@ -3289,9 +3289,9 @@ class GameScene extends Phaser.Scene {
 
     // Check proximity zones (must match ZONE_TRIGGERS positions)
     const UPDATE_ZONES = [
-      { cx: 30*T, cy: 25*T, r: 50, zone: 'vote'   },  // plaza col30,row25
-      { cx: 39*T, cy: 38*T, r: 50, zone: 'trade'  },  // shop_se
-      { cx: 752,  cy: 430,  r: 55, zone: 'travel' },  // transit hub
+      { cx: 30*TILE_SIZE, cy: 25*TILE_SIZE, r: 50, zone: 'vote'   },
+      { cx: 39*TILE_SIZE, cy: 38*TILE_SIZE, r: 50, zone: 'trade'  },
+      { cx: 752,          cy: 430,          r: 55, zone: 'travel' },
     ];
     for (const z of UPDATE_ZONES) {
       if (Phaser.Math.Distance.Between(sp.x, sp.y, z.cx, z.cy) < z.r) { nearZone = z.zone; break; }
