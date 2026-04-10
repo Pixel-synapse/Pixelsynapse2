@@ -2846,28 +2846,9 @@ class GameScene extends Phaser.Scene {
     gameState.scene = this;
     createTextures(this);
 
-    // ── TILEMAP GROUND LAYER (reference doc: this.make.tilemap pattern) ──
-    // Build a 2D data array matching the map layout, create a Phaser tilemap
-    // from it, then render as a proper layer with individual tile depths.
-    // This replaces the single canvas worldmap image for the ground.
-    createTilesetTexture(this);
-    const mapData  = buildMapData();
-    const map = this.make.tilemap({
-      data:       mapData,
-      tileWidth:  TILE_SIZE,
-      tileHeight: TILE_SIZE,
-    });
-    const tileset    = map.addTilesetImage('tileset_px');
-    const groundLayer = map.createLayer(0, tileset, 0, 0);
-    groundLayer.setDepth(0);
-    console.log('[tilemap] ✓ Ground layer created —',
-      map.width + '×' + map.height, 'tiles,', TILE_SIZE + 'px each');
-
-    // Keep the worldmap canvas for travel/multi-town overlays and minimap
-    this.worldSprite = this.add.image(0, 0, 'worldmap').setOrigin(0, 0).setDepth(0).setAlpha(0);
+    // Ground — worldmap canvas drawn by createTextures, displayed as single image
+    this.worldSprite = this.add.image(0, 0, 'worldmap').setOrigin(0, 0).setDepth(0);
     gameState.worldSprite = this.worldSprite;
-    // (Alpha 0 — tilemap layer is the visible ground; worldmap canvas
-    //  is kept for the minimap and town-switching which read from it)
 
     // Camera
     this.cameras.main.setBounds(0,0,WORLD_W,WORLD_H);
@@ -2890,9 +2871,6 @@ class GameScene extends Phaser.Scene {
       color: PAL.you, stroke: '#000000', strokeThickness: 2
     }).setDepth(11).setOrigin(0.5, 1);
     gameState.scene = this; // ensure scene ref is set before applyReputation is called
-
-    // NPC proximity glow — pulsing circle when player is in interact range
-    this._npcGlowGfx = this.add.graphics().setDepth(9);
 
     // Interact [E] prompt
     this.interactPrompt = this.add.text(0,0,'[E]',{
@@ -3283,31 +3261,13 @@ class GameScene extends Phaser.Scene {
       if (p.label) p.label.setPosition(p.sprite.x, p.sprite.y-14);
     }
 
-    // ── NPC WALK ANIMATION + Y-DEPTH SORTING + PROXIMITY GLOW ──
-    this._npcGlowGfx.clear();
-    const glowPhase = (this.game.loop.time / 600) % (Math.PI * 2);
+    // ── NPC WALK ANIMATION + Y-DEPTH SORTING ──
     for (const npc of gameState.npcs) {
       const data = gameState.npcSprites[npc.id];
       if (!data) continue;
       const sp2 = data.sprite;
 
-      // Y-depth: NPC renders in front/behind player based on Y position
       sp2.setDepth(npc.y);
-
-      // Proximity glow — pulsing ring when player in interact range
-      const dist = Phaser.Math.Distance.Between(sp.x, sp.y, sp2.x, sp2.y);
-      if (dist < NPC_INTERACT_DIST && !gameState.dialogueOpen) {
-        const pulse = 0.35 + Math.sin(glowPhase) * 0.2;
-        const rawCol = (npc.color || '#f8d030').replace('#', '');
-        const col = parseInt(rawCol, 16) || 0xf8d030;
-        this._npcGlowGfx.lineStyle(2, col, pulse);
-        this._npcGlowGfx.strokeCircle(sp2.x, sp2.y - 8, 18 + Math.sin(glowPhase) * 2);
-        this._npcGlowGfx.fillStyle(0x000000, 0.15);
-        this._npcGlowGfx.fillEllipse(sp2.x, sp2.y + 2, 20, 6);
-      } else {
-        this._npcGlowGfx.fillStyle(0x000000, 0.12);
-        this._npcGlowGfx.fillEllipse(sp2.x, sp2.y + 2, 18, 5);
-      }
 
       const vx = sp2.body ? Math.abs(sp2.body.velocity.x) : 0;
       const vy = sp2.body ? Math.abs(sp2.body.velocity.y) : 0;
