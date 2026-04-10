@@ -1919,20 +1919,20 @@ function createTextures(scene) {
 
   const BUILDING_STYLES = [
     // key, W, H, roofCol, wallCol, style descriptor
-    { key:'bld_cottage',    w:56, h:52, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
-    { key:'bld_tall',       w:48, h:72, roof:'#2848c0', wall:'#e8eef8', type:'tall'       },
-    { key:'bld_wide',       w:80, h:48, roof:'#289048', wall:'#e8f4e0', type:'wide'       },
-    { key:'bld_corner',     w:60, h:60, roof:'#c82828', wall:'#f8e8d8', type:'corner'     },
-    { key:'bld_inn',        w:72, h:56, roof:'#805020', wall:'#f0dfc0', type:'inn'        },
-    { key:'bld_modern',     w:56, h:56, roof:'#304080', wall:'#d8e8f8', type:'modern'     },
-    { key:'bld_farmhouse',  w:80, h:52, roof:'#287848', wall:'#eef8e8', type:'farmhouse'  },
-    { key:'bld_manor',      w:72, h:68, roof:'#481888', wall:'#f0e8f8', type:'manor'      },
+    { key:'bld_cottage',    w:60, h:64, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
+    { key:'bld_tall',       w:48, h:88, roof:'#2848c0', wall:'#e8eef8', type:'tall'       },
+    { key:'bld_wide',       w:88, h:72, roof:'#289048', wall:'#e8f4e0', type:'wide'       },
+    { key:'bld_corner',     w:64, h:72, roof:'#c82828', wall:'#f8e8d8', type:'corner'     },
+    { key:'bld_inn',        w:80, h:80, roof:'#805020', wall:'#f0dfc0', type:'inn'        },
+    { key:'bld_modern',     w:60, h:76, roof:'#304080', wall:'#d8e8f8', type:'modern'     },
+    { key:'bld_farmhouse',  w:88, h:68, roof:'#287848', wall:'#eef8e8', type:'farmhouse'  },
+    { key:'bld_manor',      w:76, h:96, roof:'#481888', wall:'#f0e8f8', type:'manor'      },
     // Named building textures
-    { key:'house_red',      w:64, h:64, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
-    { key:'house_blue',     w:64, h:64, roof:'#2848c0', wall:'#e8eaf8', type:'tall'       },
-    { key:'house_green',    w:64, h:64, roof:'#289048', wall:'#e8f8e0', type:'wide'       },
-    { key:'shop_tex',       w:64, h:64, roof:'#289048', wall:'#e8f8e8', type:'shop'       },
-    { key:'townhall_tex',   w:64, h:64, roof:'#f8a030', wall:'#f8f0e0', type:'townhall'   },
+    { key:'house_red',      w:60, h:68, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
+    { key:'house_blue',     w:56, h:80, roof:'#2848c0', wall:'#e8eaf8', type:'tall'       },
+    { key:'house_green',    w:68, h:64, roof:'#289048', wall:'#e8f8e0', type:'wide'       },
+    { key:'shop_tex',       w:80, h:72, roof:'#289048', wall:'#e8f8e8', type:'shop'       },
+    { key:'townhall_tex',   w:80, h:96, roof:'#f8a030', wall:'#f8f0e0', type:'townhall'   },
   ];
 
   function drawBuildingUnique(ctx2, w, h, roofCol, wallCol, type) {
@@ -2460,14 +2460,14 @@ function spawnCityWorldObjects(scene) {
     let hSeed2 = 0;
     // All 8 unique building styles — each has distinct dimensions from BUILDING_STYLES
     const roadBldgTypes = [
-      { key:'bld_cottage',   w:56, h:52 },
-      { key:'bld_tall',      w:48, h:72 },
-      { key:'bld_wide',      w:80, h:48 },
-      { key:'bld_corner',    w:60, h:60 },
-      { key:'bld_inn',       w:72, h:56 },
-      { key:'bld_modern',    w:56, h:56 },
-      { key:'bld_farmhouse', w:80, h:52 },
-      { key:'bld_manor',     w:72, h:68 },
+      { key:'bld_cottage',   w:60, h:64 },
+      { key:'bld_tall',      w:48, h:88 },
+      { key:'bld_wide',      w:88, h:72 },
+      { key:'bld_corner',    w:64, h:72 },
+      { key:'bld_inn',       w:80, h:80 },
+      { key:'bld_modern',    w:60, h:76 },
+      { key:'bld_farmhouse', w:88, h:68 },
+      { key:'bld_manor',     w:76, h:96 },
     ];
 
     function addBldgCollider(tx2, ty2) {
