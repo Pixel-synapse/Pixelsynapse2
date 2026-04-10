@@ -1913,166 +1913,318 @@ function createTextures(scene) {
   }
   console.log('[createTextures] ✓ Player textures:', Object.keys(playerFrames).join(', '));
 
-  // ── BUILDING VARIANT TEXTURES ──
-  // Each variant gets a standalone canvas texture so buildings can be placed
-  // as real Phaser image objects (visible, depth-sorted) rather than baked
-  // into the invisible worldmap canvas.
-  // Size: 64×64 pixels (4 tiles × 16px) — displayed at scale=2 → 128×128px
-  const BLDG_W = 64, BLDG_H = 64;
-  const buildingVariantDefs = [
-    { key:'house_red',   roofCol:'#e82020', wallCol:'#f0e8c0', variant:'house_red'   },
-    { key:'house_blue',  roofCol:'#2848c0', wallCol:'#e8eaf8', variant:'house_blue'  },
-    { key:'house_green', roofCol:'#289048', wallCol:'#e8f8e0', variant:'house_green' },
-    { key:'shop_tex',    roofCol:'#289048', wallCol:'#e8f8e8', variant:'shop'        },
-    { key:'townhall_tex',roofCol:'#f8a030', wallCol:'#f8f0e0', variant:'townhall'    },
+  // ── BUILDING VARIANT TEXTURES — 8 completely unique styles ──
+  // Each has distinct: dimensions, roof shape, window layout, door style, wall texture
+  // Canvas sizes vary per building — wider/taller buildings look different on map
+
+  const BUILDING_STYLES = [
+    // key, W, H, roofCol, wallCol, style descriptor
+    { key:'bld_cottage',    w:56, h:52, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
+    { key:'bld_tall',       w:48, h:72, roof:'#2848c0', wall:'#e8eef8', type:'tall'       },
+    { key:'bld_wide',       w:80, h:48, roof:'#289048', wall:'#e8f4e0', type:'wide'       },
+    { key:'bld_corner',     w:60, h:60, roof:'#c82828', wall:'#f8e8d8', type:'corner'     },
+    { key:'bld_inn',        w:72, h:56, roof:'#805020', wall:'#f0dfc0', type:'inn'        },
+    { key:'bld_modern',     w:56, h:56, roof:'#304080', wall:'#d8e8f8', type:'modern'     },
+    { key:'bld_farmhouse',  w:80, h:52, roof:'#287848', wall:'#eef8e8', type:'farmhouse'  },
+    { key:'bld_manor',      w:72, h:68, roof:'#481888', wall:'#f0e8f8', type:'manor'      },
+    // Named building textures
+    { key:'house_red',      w:64, h:64, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
+    { key:'house_blue',     w:64, h:64, roof:'#2848c0', wall:'#e8eaf8', type:'tall'       },
+    { key:'house_green',    w:64, h:64, roof:'#289048', wall:'#e8f8e0', type:'wide'       },
+    { key:'shop_tex',       w:64, h:64, roof:'#289048', wall:'#e8f8e8', type:'shop'       },
+    { key:'townhall_tex',   w:64, h:64, roof:'#f8a030', wall:'#f8f0e0', type:'townhall'   },
   ];
 
-  // Mini drawBuilding that renders into a standalone canvas at 1:1 (no tile coords)
-  function drawBuildingTex(ctx2, w, h, roofCol, wallCol, variant) {
-    const roofH = Math.floor(h * 0.36);
+  function drawBuildingUnique(ctx2, w, h, roofCol, wallCol, type) {
+    const S = Math.min(w, h);
+    const roofH = type === 'tall'   ? Math.floor(h * 0.28)
+                : type === 'wide'   ? Math.floor(h * 0.40)
+                : type === 'manor'  ? Math.floor(h * 0.38)
+                : type === 'modern' ? Math.floor(h * 0.25)
+                : Math.floor(h * 0.34);
 
-    // ── WALL — base + subtle brick pattern + depth shading ──
+    // ── WALL ──
     ctx2.fillStyle = wallCol; ctx2.fillRect(0, 0, w, h);
-    // Horizontal brick lines
-    ctx2.fillStyle = darkenHex(wallCol, 12);
-    for (let wy2 = roofH + 6; wy2 < h - 3; wy2 += 6) ctx2.fillRect(2, wy2, w-4, 1);
-    // Vertical mortar joints (staggered every other row)
-    ctx2.fillStyle = darkenHex(wallCol, 8);
-    let row = 0;
-    for (let wy2 = roofH + 6; wy2 < h - 3; wy2 += 6, row++) {
-      const off = (row % 2 === 0) ? 0 : 8;
-      for (let bx = off; bx < w; bx += 16) ctx2.fillRect(bx, wy2 - 5, 1, 5);
-    }
-    // Left shadow pillar
-    ctx2.fillStyle = darkenHex(wallCol, 20);
-    ctx2.fillRect(0, 0, 3, h);
-    // Bottom shadow strip
-    ctx2.fillRect(0, h-3, w, 3);
-    // Right highlight
-    ctx2.fillStyle = lightenHex(wallCol, 12);
-    ctx2.fillRect(w-2, roofH, 2, h-roofH);
-    // Top wall highlight
-    ctx2.fillStyle = lightenHex(wallCol, 25);
-    ctx2.fillRect(3, roofH, w-5, 2);
 
-    // ── ROOF ──
-    ctx2.fillStyle = roofCol; ctx2.fillRect(0, 0, w, roofH);
-    if (variant === 'shop' || variant === 'townhall') {
-      // Flat roof: parapet crenellations
-      ctx2.fillStyle = darkenHex(roofCol, 15);
-      for (let cx2 = 3; cx2 < w-3; cx2 += 8) ctx2.fillRect(cx2, 0, 4, 5);
-      // Awning stripes
-      for (let i = 0; i < 3; i++) {
-        ctx2.fillStyle = i%2===0 ? darkenHex(roofCol,8) : lightenHex(roofCol,20);
-        ctx2.fillRect(4, roofH + i*3, w-8, 3);
+    // Wall texture varies by type
+    if (type === 'modern') {
+      // Clean concrete — horizontal panel lines
+      ctx2.fillStyle = darkenHex(wallCol, 8);
+      for (let y = roofH+8; y < h; y += 10) ctx2.fillRect(2, y, w-4, 1);
+    } else if (type === 'farmhouse') {
+      // Wooden plank siding — vertical lines
+      ctx2.fillStyle = darkenHex(wallCol, 10);
+      for (let x = 6; x < w; x += 7) ctx2.fillRect(x, roofH, 1, h-roofH-2);
+    } else if (type === 'manor') {
+      // Stone blocks — grid pattern
+      ctx2.fillStyle = darkenHex(wallCol, 10);
+      for (let y = roofH+5; y < h-2; y += 9) ctx2.fillRect(2, y, w-4, 1);
+      for (let y = roofH+5, row = 0; y < h-2; y += 9, row++) {
+        const off = row % 2 === 0 ? 0 : 12;
+        for (let x = off; x < w; x += 24) ctx2.fillRect(x, y-8, 1, 8);
       }
-      if (variant === 'townhall') {
-        // Flag pole + flag
+    } else {
+      // Brick — staggered mortar lines
+      let row = 0;
+      for (let y = roofH+5; y < h-2; y += 6, row++) {
+        ctx2.fillStyle = darkenHex(wallCol, 9);
+        ctx2.fillRect(2, y, w-4, 1);
+        ctx2.fillStyle = darkenHex(wallCol, 6);
+        const off = row % 2 === 0 ? 0 : 9;
+        for (let x = off; x < w; x += 18) ctx2.fillRect(x, y-5, 1, 5);
+      }
+    }
+
+    // Wall shading
+    ctx2.fillStyle = darkenHex(wallCol, 22); ctx2.fillRect(0, 0, 3, h); ctx2.fillRect(0, h-3, w, 3);
+    ctx2.fillStyle = lightenHex(wallCol, 18); ctx2.fillRect(w-2, roofH, 2, h-roofH); ctx2.fillRect(3, roofH, w-5, 2);
+
+    // ── ROOF — unique per type ──
+    ctx2.fillStyle = roofCol; ctx2.fillRect(0, 0, w, roofH);
+
+    if (type === 'modern') {
+      // Flat roof — concrete parapet with railing posts
+      ctx2.fillStyle = darkenHex(roofCol, 20);
+      ctx2.fillRect(0, 0, w, 4);
+      ctx2.fillRect(0, roofH-3, w, 3);
+      ctx2.fillStyle = lightenHex(roofCol, 15);
+      for (let x = 5; x < w-5; x += 8) ctx2.fillRect(x, 0, 2, roofH);
+    } else if (type === 'inn') {
+      // Gambrel roof (barn style) — two pitches
+      ctx2.fillStyle = darkenHex(roofCol, 10);
+      const mid = Math.floor(roofH * 0.5);
+      ctx2.fillRect(0, 0, w, mid);
+      ctx2.fillStyle = darkenHex(roofCol, 22);
+      ctx2.fillRect(4, mid, w-8, roofH-mid);
+      // Ridge tiles
+      for (let x = 0; x < w; x += 8) {
+        ctx2.fillStyle = (x/8)%2===0 ? darkenHex(roofCol,14) : lightenHex(roofCol,8);
+        ctx2.fillRect(x, 0, 8, mid);
+      }
+      ctx2.fillStyle = lightenHex(roofCol, 25); ctx2.fillRect(3, 0, w-6, 2);
+    } else if (type === 'manor') {
+      // Mansard roof — steep sides, flat top
+      ctx2.fillStyle = darkenHex(roofCol, 18);
+      for (let i = 0; i < 4; i++) ctx2.fillRect(i*2, i*2, w-i*4, 4);
+      ctx2.fillStyle = lightenHex(roofCol, 20); ctx2.fillRect(4, 0, w-8, 3);
+      // Dormer windows
+      const dm = [Math.floor(w*0.25), Math.floor(w*0.65)];
+      dm.forEach(dx => {
+        ctx2.fillStyle = darkenHex(roofCol, 8); ctx2.fillRect(dx-3, 2, 10, 8);
+        ctx2.fillStyle = '#90c8f0'; ctx2.fillRect(dx-1, 3, 6, 5);
+      });
+    } else if (type === 'corner') {
+      // Hip roof — converging lines
+      ctx2.fillStyle = darkenHex(roofCol, 12);
+      for (let i = 0; i < roofH; i += 3) {
+        const inset = Math.floor(i * 0.3);
+        ctx2.fillRect(inset, i, w-inset*2, 2);
+      }
+      ctx2.fillStyle = lightenHex(roofCol, 28); ctx2.fillRect(w/2-2, 0, 4, 2);
+    } else {
+      // Gabled pitched roof — tile rows with stagger + chimney
+      ctx2.fillStyle = darkenHex(roofCol, 14);
+      for (let row2 = 2; row2 < roofH; row2 += 4) {
+        const off = (row2/4)%2===0 ? 0 : 5;
+        for (let x = off; x < w; x += 10) ctx2.fillRect(x, row2, 8, 3);
+      }
+      ctx2.fillStyle = lightenHex(roofCol, 32); ctx2.fillRect(4, 0, w-8, 2);
+      ctx2.fillStyle = darkenHex(roofCol, 25); ctx2.fillRect(0, roofH-2, w, 2);
+      // Chimney — position varies by type
+      const chX = type === 'wide' ? 12 : type === 'farmhouse' ? w-18 : w-16;
+      ctx2.fillStyle = '#909080'; ctx2.fillRect(chX, -6, 8, roofH+2);
+      ctx2.fillStyle = '#606050'; ctx2.fillRect(chX-1, -8, 10, 3);
+      ctx2.fillStyle = 'rgba(200,200,200,0.5)';
+      ctx2.beginPath(); ctx2.arc(chX+4, -12, 3, 0, Math.PI*2); ctx2.fill();
+      ctx2.beginPath(); ctx2.arc(chX+7, -17, 2, 0, Math.PI*2); ctx2.fill();
+    }
+
+    // ── WINDOWS — unique layout per type ──
+    const winY = roofH + 7;
+
+    if (type === 'shop' || type === 'townhall') {
+      // Wide display window
+      const ww = w - 16;
+      ctx2.fillStyle = '#101820'; ctx2.fillRect(8, winY, ww, 16);
+      ctx2.fillStyle = '#b8e8ff'; ctx2.fillRect(10, winY+2, ww-4, 12);
+      ctx2.fillStyle = '#e8f8ff'; ctx2.fillRect(11, winY+3, 5, 5);
+      ctx2.fillStyle = '#101820'; ctx2.fillRect(8+ww/2-1, winY, 2, 16);
+      if (type === 'townhall') {
         ctx2.fillStyle = '#909090'; ctx2.fillRect(w/2-1, -8, 2, 10);
         ctx2.fillStyle = '#e82020'; ctx2.fillRect(w/2+1, -8, 8, 3);
         ctx2.fillStyle = '#f8d030'; ctx2.fillRect(w/2+1, -5, 8, 2);
       }
+    } else if (type === 'modern') {
+      // Horizontal strip windows
+      const wh = 7;
+      [winY, winY+16].forEach(wy2 => {
+        ctx2.fillStyle = '#202838'; ctx2.fillRect(6, wy2, w-12, wh+2);
+        ctx2.fillStyle = '#90b8e0'; ctx2.fillRect(7, wy2+1, w-14, wh);
+        ctx2.fillStyle = '#c8e0f8'; ctx2.fillRect(7, wy2+1, 8, 3);
+        // Window divisions
+        for (let x = 7+12; x < w-7; x += 12) {
+          ctx2.fillStyle = '#202838'; ctx2.fillRect(x, wy2+1, 1, wh);
+        }
+      });
+    } else if (type === 'tall') {
+      // Three rows of windows (tall building has more floors)
+      [winY, winY+16, winY+30].forEach((wy2, floor) => {
+        [[6, wy2], [w-18, wy2]].forEach(([wx2]) => {
+          ctx2.fillStyle = '#181820'; ctx2.fillRect(wx2-1, wy2-1, 12, 10);
+          ctx2.fillStyle = floor === 0 ? '#90c8f0' : '#7ab0d8';
+          ctx2.fillRect(wx2, wy2, 10, 8);
+          ctx2.fillStyle = '#c8e8ff'; ctx2.fillRect(wx2+1, wy2+1, 4, 3);
+          ctx2.fillStyle = darkenHex(roofCol, 5);
+          ctx2.fillRect(wx2, wy2, 3, 8); ctx2.fillRect(wx2+7, wy2, 3, 8);
+        });
+      });
+    } else if (type === 'wide' || type === 'farmhouse') {
+      // Three windows across (wide building)
+      const positions = [8, Math.floor(w/2)-5, w-21];
+      positions.forEach(wx2 => {
+        ctx2.fillStyle = '#181820'; ctx2.fillRect(wx2-1, winY-1, 13, 12);
+        ctx2.fillStyle = '#b8ddf8'; ctx2.fillRect(wx2, winY, 11, 10);
+        ctx2.fillStyle = '#e0f0ff'; ctx2.fillRect(wx2+1, winY+1, 4, 4);
+        ctx2.fillStyle = darkenHex(roofCol, 5);
+        ctx2.fillRect(wx2, winY, 3, 10); ctx2.fillRect(wx2+8, winY, 3, 10);
+        ctx2.fillStyle = '#181820';
+        ctx2.fillRect(wx2+4, winY, 2, 10); ctx2.fillRect(wx2, winY+5, 11, 1);
+        // Flower box
+        ctx2.fillStyle = '#703018'; ctx2.fillRect(wx2-1, winY+11, 14, 3);
+        ctx2.fillStyle = '#e82020'; ctx2.fillRect(wx2+1, winY+11, 3, 2);
+        ctx2.fillStyle = '#f8d030'; ctx2.fillRect(wx2+5, winY+11, 3, 2);
+        ctx2.fillStyle = '#289048'; ctx2.fillRect(wx2+9, winY+11, 3, 2);
+      });
+    } else if (type === 'manor') {
+      // Arched windows (manor style)
+      [[8, winY], [w-22, winY]].forEach(([wx2, wy2]) => {
+        // Arch frame
+        ctx2.fillStyle = '#201828'; ctx2.fillRect(wx2-1, wy2-1, 15, 15);
+        // Arch shape: rectangle + semicircle top
+        ctx2.fillStyle = '#90b0e0'; ctx2.fillRect(wx2, wy2+4, 13, 9);
+        ctx2.fillStyle = '#a8c8f8';
+        ctx2.beginPath(); ctx2.arc(wx2+6, wy2+4, 6, Math.PI, 0); ctx2.fill();
+        ctx2.fillStyle = '#d0e8ff'; ctx2.fillRect(wx2+1, wy2+5, 5, 3);
+        // Divider
+        ctx2.fillStyle = '#201828'; ctx2.fillRect(wx2+6, wy2, 1, 13);
+      });
     } else {
-      // Pitched roof: tile rows with stagger
-      ctx2.fillStyle = darkenHex(roofCol, 14);
-      for (let row2 = 2; row2 < roofH; row2 += 4) {
-        const off = (row2/4)%2===0 ? 0 : 5;
-        for (let cx2 = off; cx2 < w; cx2 += 10) ctx2.fillRect(cx2, row2, 8, 3);
-      }
-      // Ridge highlight
-      ctx2.fillStyle = lightenHex(roofCol, 35); ctx2.fillRect(4, 0, w-8, 2);
-      // Eave shadow
-      ctx2.fillStyle = darkenHex(roofCol, 28); ctx2.fillRect(0, roofH-2, w, 3);
-      // Chimney with cap
-      const chX = w-15;
-      ctx2.fillStyle = '#908070'; ctx2.fillRect(chX, -6, 8, roofH+3);
-      ctx2.fillStyle = '#706050'; ctx2.fillRect(chX-1, -8, 10, 3);
-      ctx2.fillStyle = lightenHex('#908070', 15); ctx2.fillRect(chX+1, -5, 3, roofH);
-      // Smoke
-      ctx2.fillStyle = 'rgba(210,210,210,0.5)';
-      ctx2.beginPath(); ctx2.arc(chX+3, -12, 3, 0, Math.PI*2); ctx2.fill();
-      ctx2.beginPath(); ctx2.arc(chX+6, -17, 2, 0, Math.PI*2); ctx2.fill();
-    }
-
-    // ── WINDOWS — with depth sill and inner shadow ──
-    const winY = roofH + 7;
-    if (variant === 'shop' || variant === 'townhall') {
-      // Wide display window
-      const ww = w - 16;
-      ctx2.fillStyle = '#101820'; ctx2.fillRect(8, winY, ww, 15);      // outer frame dark
-      ctx2.fillStyle = '#b8e8ff'; ctx2.fillRect(10, winY+2, ww-4, 11); // glass
-      ctx2.fillStyle = '#e8f8ff'; ctx2.fillRect(11, winY+3, 5, 4);     // shine
-      ctx2.fillStyle = '#78c8f0'; ctx2.fillRect(10, winY+10, ww-4, 2); // bottom tint
-      ctx2.fillStyle = '#101820'; ctx2.fillRect(8+ww/2-1, winY, 2, 15); // divider
-    } else {
+      // cottage / corner / inn — two windows with flower boxes
       [[5, winY], [w-19, winY]].forEach(([wx2, wy2]) => {
-        // Window sill (3D ledge)
-        ctx2.fillStyle = darkenHex(wallCol, 25); ctx2.fillRect(wx2-1, wy2+10, 14, 3);
-        ctx2.fillStyle = lightenHex(wallCol, 10); ctx2.fillRect(wx2-1, wy2+10, 14, 1);
-        // Frame
-        ctx2.fillStyle = '#282018'; ctx2.fillRect(wx2-1, wy2-1, 14, 12);
-        // Glass with inner shadow
-        ctx2.fillStyle = '#90c8f0'; ctx2.fillRect(wx2, wy2, 12, 10);
-        ctx2.fillStyle = '#b8e0ff'; ctx2.fillRect(wx2+1, wy2+1, 9, 7);
-        // Shine
-        ctx2.fillStyle = '#e8f8ff'; ctx2.fillRect(wx2+1, wy2+1, 4, 3);
-        // Curtains
-        ctx2.fillStyle = roofCol + 'cc';  // semi-transparent roof colour
-        ctx2.fillStyle = darkenHex(roofCol, 5); ctx2.fillRect(wx2, wy2, 3, 10);
-        ctx2.fillRect(wx2+9, wy2, 3, 10);
-        // Cross divider
-        ctx2.fillStyle = '#282018';
-        ctx2.fillRect(wx2+5, wy2, 2, 10); ctx2.fillRect(wx2, wy2+4, 12, 1);
-        // Flower box below window
-        ctx2.fillStyle = '#804018'; ctx2.fillRect(wx2-1, wy2+11, 14, 4);
-        ctx2.fillStyle = '#e82020'; ctx2.fillRect(wx2+1, wy2+11, 3, 3);
-        ctx2.fillStyle = '#f8d030'; ctx2.fillRect(wx2+5, wy2+11, 3, 3);
-        ctx2.fillStyle = '#289048'; ctx2.fillRect(wx2+9, wy2+11, 3, 3);
+        ctx2.fillStyle = '#181820'; ctx2.fillRect(wx2-1, wy2-1, 14, 13);
+        ctx2.fillStyle = '#b8ddf0'; ctx2.fillRect(wx2, wy2, 12, 11);
+        ctx2.fillStyle = '#e0f4ff'; ctx2.fillRect(wx2+1, wy2+1, 4, 4);
+        ctx2.fillStyle = darkenHex(roofCol, 5);
+        ctx2.fillRect(wx2, wy2, 3, 11); ctx2.fillRect(wx2+9, wy2, 3, 11);
+        ctx2.fillStyle = '#181820';
+        ctx2.fillRect(wx2+5, wy2, 2, 11); ctx2.fillRect(wx2, wy2+5, 12, 1);
+        ctx2.fillStyle = '#703018'; ctx2.fillRect(wx2-1, wy2+12, 15, 4);
+        ctx2.fillStyle = '#e82020'; ctx2.fillRect(wx2+1, wy2+12, 3, 3);
+        ctx2.fillStyle = '#f8d030'; ctx2.fillRect(wx2+5, wy2+12, 3, 3);
+        ctx2.fillStyle = '#289048'; ctx2.fillRect(wx2+9, wy2+12, 3, 3);
+        // Window sill
+        ctx2.fillStyle = darkenHex(wallCol, 22); ctx2.fillRect(wx2-2, wy2+12, 16, 2);
       });
     }
 
-    // ── DOOR — stepped frame + panels + knob ──
-    const isLarge = variant==='shop'||variant==='townhall';
-    const dw = isLarge ? 14 : 10;
-    const dh = isLarge ? 20 : 16;
-    const dx = Math.floor(w/2) - Math.floor(dw/2), dy = h - dh;
-    // Outer step frame
-    ctx2.fillStyle = darkenHex(wallCol, 30); ctx2.fillRect(dx-3, dy-3, dw+6, dh+3);
-    // Inner door body
-    ctx2.fillStyle = '#c07030'; ctx2.fillRect(dx, dy, dw, dh);
-    // Left shadow
-    ctx2.fillStyle = '#804010'; ctx2.fillRect(dx, dy, 2, dh);
-    // Upper panel
-    ctx2.fillStyle = '#a05820'; ctx2.fillRect(dx+2, dy+2, dw-4, Math.floor(dh*0.4)-1);
-    // Lower panel
-    ctx2.fillRect(dx+2, dy+Math.floor(dh*0.45), dw-4, Math.floor(dh*0.45));
-    // Panel highlights
-    ctx2.fillStyle = '#d08040';
-    ctx2.fillRect(dx+2, dy+2, dw-4, 1);
-    ctx2.fillRect(dx+2, dy+Math.floor(dh*0.45), dw-4, 1);
-    // Knob
-    ctx2.fillStyle = '#f8d030'; ctx2.fillRect(dx+dw-5, dy+Math.floor(dh*0.52), 3, 3);
-    ctx2.fillStyle = '#c0a020'; ctx2.fillRect(dx+dw-4, dy+Math.floor(dh*0.52)+1, 1, 1);
-    // Step
-    ctx2.fillStyle = darkenHex(wallCol, 15); ctx2.fillRect(dx-4, h-3, dw+8, 3);
-    ctx2.fillStyle = lightenHex(wallCol, 5);  ctx2.fillRect(dx-4, h-3, dw+8, 1);
+    // ── DOOR — unique style per type ──
+    const doorStyles = {
+      cottage:   { w:10, h:16, col:'#c07030', style:'arched' },
+      tall:      { w: 8, h:18, col:'#804010', style:'narrow' },
+      wide:      { w:14, h:15, col:'#a06020', style:'double' },
+      corner:    { w:12, h:17, col:'#c07030', style:'framed' },
+      inn:       { w:16, h:20, col:'#805020', style:'double' },
+      modern:    { w:10, h:17, col:'#304080', style:'glass'  },
+      farmhouse: { w:14, h:16, col:'#806040', style:'barn'   },
+      manor:     { w:14, h:22, col:'#481888', style:'grand'  },
+      shop:      { w:14, h:20, col:'#289048', style:'double' },
+      townhall:  { w:14, h:22, col:'#f8a030', style:'grand'  },
+    };
+    const ds = doorStyles[type] || doorStyles.cottage;
+    const dx = Math.floor(w/2) - Math.floor(ds.w/2);
+    const dy = h - ds.h;
 
-    // ── OUTLINE ──
+    // Door frame
+    ctx2.fillStyle = darkenHex(wallCol, 28); ctx2.fillRect(dx-3, dy-3, ds.w+6, ds.h+3);
+
+    if (ds.style === 'glass') {
+      // Modern glass door — dark frame, bright glass
+      ctx2.fillStyle = '#202838'; ctx2.fillRect(dx, dy, ds.w, ds.h);
+      ctx2.fillStyle = '#80b8e0'; ctx2.fillRect(dx+1, dy+1, ds.w-2, ds.h-2);
+      ctx2.fillStyle = '#c0d8f0'; ctx2.fillRect(dx+1, dy+1, 4, 6);
+    } else if (ds.style === 'barn') {
+      // Barn door — horizontal slats
+      ctx2.fillStyle = '#a06830'; ctx2.fillRect(dx, dy, ds.w, ds.h);
+      ctx2.fillStyle = darkenHex('#a06830', 15);
+      for (let y = dy+3; y < dy+ds.h; y += 4) ctx2.fillRect(dx, y, ds.w, 1);
+      ctx2.fillStyle = '#c08040'; ctx2.fillRect(dx, dy, ds.w, 2); // top rail
+      ctx2.fillStyle = '#f8d030'; ctx2.fillRect(dx+ds.w-4, dy+Math.floor(ds.h*0.5), 3, 3);
+    } else if (ds.style === 'grand') {
+      // Grand double door with arch top
+      ctx2.fillStyle = ds.col; ctx2.fillRect(dx, dy, ds.w, ds.h);
+      // Arch
+      ctx2.fillStyle = darkenHex(ds.col, 8);
+      ctx2.beginPath(); ctx2.arc(dx+ds.w/2, dy, ds.w/2, Math.PI, 0); ctx2.fill();
+      ctx2.fillStyle = ds.col; ctx2.fillRect(dx, dy, ds.w, 6);
+      // Center split
+      ctx2.fillStyle = darkenHex(ds.col, 20); ctx2.fillRect(dx+ds.w/2-1, dy, 2, ds.h);
+      // Panels
+      ctx2.fillStyle = darkenHex(ds.col, 12);
+      ctx2.fillRect(dx+1, dy+2, ds.w/2-3, ds.h*0.4);
+      ctx2.fillRect(dx+ds.w/2+2, dy+2, ds.w/2-3, ds.h*0.4);
+      // Knobs
+      ctx2.fillStyle = '#f8d030';
+      ctx2.fillRect(dx+ds.w/2-4, dy+Math.floor(ds.h*0.55), 3, 3);
+      ctx2.fillRect(dx+ds.w/2+2, dy+Math.floor(ds.h*0.55), 3, 3);
+    } else if (ds.style === 'double') {
+      // Double door
+      ctx2.fillStyle = ds.col; ctx2.fillRect(dx, dy, ds.w, ds.h);
+      ctx2.fillStyle = darkenHex(ds.col, 18); ctx2.fillRect(dx+ds.w/2-1, dy, 2, ds.h);
+      ctx2.fillStyle = darkenHex(ds.col, 10);
+      ctx2.fillRect(dx+1, dy+2, ds.w/2-3, ds.h*0.4);
+      ctx2.fillRect(dx+ds.w/2+2, dy+2, ds.w/2-3, ds.h*0.4);
+      ctx2.fillStyle = '#f8d030';
+      ctx2.fillRect(dx+ds.w/2-4, dy+Math.floor(ds.h*0.55), 3, 3);
+      ctx2.fillRect(dx+ds.w/2+2, dy+Math.floor(ds.h*0.55), 3, 3);
+    } else if (ds.style === 'arched') {
+      // Single arched door
+      ctx2.fillStyle = ds.col; ctx2.fillRect(dx, dy+3, ds.w, ds.h-3);
+      ctx2.beginPath(); ctx2.arc(dx+ds.w/2, dy+3, ds.w/2, Math.PI, 0); ctx2.fill();
+      ctx2.fillStyle = darkenHex(ds.col, 15); ctx2.fillRect(dx, dy+3, 2, ds.h-3);
+      ctx2.fillStyle = darkenHex(ds.col, 10);
+      ctx2.fillRect(dx+2, dy+5, ds.w-4, Math.floor((ds.h-5)*0.4));
+      ctx2.fillRect(dx+2, dy+Math.floor(ds.h*0.5), ds.w-4, Math.floor((ds.h-5)*0.38));
+      ctx2.fillStyle = '#f8d030'; ctx2.fillRect(dx+ds.w-4, dy+Math.floor(ds.h*0.55), 3, 3);
+    } else {
+      // Narrow / framed standard door
+      ctx2.fillStyle = ds.col; ctx2.fillRect(dx, dy, ds.w, ds.h);
+      ctx2.fillStyle = darkenHex(ds.col, 18); ctx2.fillRect(dx, dy, 2, ds.h);
+      ctx2.fillStyle = darkenHex(ds.col, 10);
+      ctx2.fillRect(dx+2, dy+2, ds.w-4, Math.floor(ds.h*0.42));
+      ctx2.fillRect(dx+2, dy+Math.floor(ds.h*0.5), ds.w-4, Math.floor(ds.h*0.38));
+      ctx2.fillStyle = '#f8d030'; ctx2.fillRect(dx+ds.w-4, dy+Math.floor(ds.h*0.55), 3, 3);
+    }
+
+    // Door step
+    ctx2.fillStyle = darkenHex(wallCol, 20); ctx2.fillRect(dx-4, h-3, ds.w+8, 3);
+    ctx2.fillStyle = lightenHex(wallCol, 8);  ctx2.fillRect(dx-4, h-3, ds.w+8, 1);
+
+    // Outline + inner shadow
     ctx2.strokeStyle = '#181018'; ctx2.lineWidth = 1; ctx2.strokeRect(0, 0, w, h);
-    // Inner outline shadow for 3D look
-    ctx2.strokeStyle = darkenHex(wallCol, 30);
-    ctx2.strokeRect(1, 1, w-2, h-2);
+    ctx2.strokeStyle = darkenHex(wallCol, 25); ctx2.strokeRect(1, 1, w-2, h-2);
   }
 
-  buildingVariantDefs.forEach(({ key, roofCol, wallCol, variant }) => {
+  BUILDING_STYLES.forEach(({ key, w, h, roof, wall, type }) => {
     if (scene.textures.exists(key)) scene.textures.remove(key);
-    const btex = scene.textures.createCanvas(key, BLDG_W, BLDG_H);
+    const btex = scene.textures.createCanvas(key, w, h);
     const bctx = btex.getContext();
     bctx.imageSmoothingEnabled = false;
-    drawBuildingTex(bctx, BLDG_W, BLDG_H, roofCol, wallCol, variant);
+    drawBuildingUnique(bctx, w, h, roof, wall, type);
     btex.refresh();
   });
-  console.log('[createTextures] ✓ Building textures: house_red, house_blue, house_green, shop_tex, townhall_tex');
+  console.log('[createTextures] ✓ 8 unique building styles generated');
+
+  // Mini drawBuilding that renders into a standalone canvas at 1:1 (no tile coords)
 
   // ── NPC BASE SPRITE (fallback, gray) ──
   if (scene.textures.exists('npc_base')) scene.textures.remove('npc_base');
@@ -2306,40 +2458,59 @@ function spawnCityWorldObjects(scene) {
     // Helper — add visible image + collision + isTop + door
     const rngH2 = (n) => { let x = Math.sin(n*73.1)*43758.5; return x-Math.floor(x); };
     let hSeed2 = 0;
-    const houseTypes2 = ['house_red','house_blue','house_green'];
+    // All 8 unique building styles — each has distinct dimensions from BUILDING_STYLES
+    const roadBldgTypes = [
+      { key:'bld_cottage',   w:56, h:52 },
+      { key:'bld_tall',      w:48, h:72 },
+      { key:'bld_wide',      w:80, h:48 },
+      { key:'bld_corner',    w:60, h:60 },
+      { key:'bld_inn',       w:72, h:56 },
+      { key:'bld_modern',    w:56, h:56 },
+      { key:'bld_farmhouse', w:80, h:52 },
+      { key:'bld_manor',     w:72, h:68 },
+    ];
 
     function addBldgCollider(tx2, ty2) {
-      if (tx2 < 1 || ty2 < 1 || tx2 >= COLS-4 || ty2 >= ROWS-4) return;
+      if (tx2 < 1 || ty2 < 1 || tx2 >= COLS-5 || ty2 >= ROWS-5) return;
       if (roadSet2.has(`${tx2},${ty2}`) || occupied2.has(`${tx2},${ty2}`)) return;
-      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) occupied2.add(`${tx2+c},${ty2+r}`);
 
+      // Pick unique style — cycle through all 8 so each placed house looks different
       hSeed2++;
-      const type = houseTypes2[Math.floor(rngH2(hSeed2) * 3)];
-      const hId  = type === 'house_blue' ? 'house_ne' : type === 'house_green' ? 'house_sw' : 'house_nw';
-      const px = tx2*T, py = ty2*T, bw = 4*T, bh = 4*T;
+      const bldgDef = roadBldgTypes[hSeed2 % roadBldgTypes.length];
+      const { key, w: bpxW, h: bpxH } = bldgDef;
 
-      // Visible base image
-      const bi = scene.add.image(px, py, type).setOrigin(0,0).setDisplaySize(bw,bh).setDepth(py+bh);
+      // Display size matches canvas pixel size (1:1, no scaling — Phaser scales via setDisplaySize)
+      const px = tx2*T, py = ty2*T;
+      // Use actual pixel dimensions from the building style
+      const bw = bpxW, bh = bpxH;
+
+      // Mark footprint in tile space (approx tile count)
+      const tw = Math.ceil(bw / T), th = Math.ceil(bh / T);
+      for (let r = 0; r < th; r++) for (let c = 0; c < tw; c++) occupied2.add(`${tx2+c},${ty2+r}`);
+
+      // Visible base image — sized to match building canvas exactly
+      const bi = scene.add.image(px, py, key).setOrigin(0,0).setDisplaySize(bw, bh).setDepth(py+bh);
       gameState.worldObjects.push(bi);
 
-      // Roof image — isTop
-      const ri = scene.add.image(px, py, type).setOrigin(0,0)
-        .setDisplaySize(bw, Math.round(bh*0.4))
-        .setCrop(0, 0, 64, Math.round(64*0.4));
+      // Roof isTop image — top 36% of building
+      const roofPx = Math.round(bh * 0.36);
+      const ri = scene.add.image(px, py, key).setOrigin(0,0)
+        .setDisplaySize(bw, roofPx)
+        .setCrop(0, 0, bpxW, Math.round(bpxH * 0.36));
       ri.isTop = true; ri.setDepth(py+1000);
       gameState.worldObjects.push(ri); gameState._topObjects.push(ri);
 
-      // Collision
-      const collH = Math.round(bh*0.62);
+      // Collision (upper 60% of display height)
+      const collH = Math.round(bh * 0.60);
       const cb = scene.physics.add.staticImage(px+bw/2, py+collH/2, null).setVisible(false);
       cb.setDisplaySize(bw-4, collH); cb.refreshBody();
       gameState.worldObjects.push(cb); gameState.buildingGroup.add(cb);
 
-      // Door
+      // Door zone at base
       const dz = gameState.doorGroup.create(px+bw/2, py+bh, null);
-      dz.setSize(36,24).setOrigin(0.5,0.5).setVisible(false).refreshBody();
-      dz.houseId    = hId;
-      dz.houseLabel = type === 'house_red' ? 'HOME' : 'HOUSE';
+      dz.setSize(40, 28).setOrigin(0.5,0.5).setVisible(false).refreshBody();
+      dz.houseId    = 'house_nw';
+      dz.houseLabel = 'HOUSE';
       dz.returnX    = px+bw/2; dz.returnY = py+bh+28;
       gameState.worldObjects.push(dz);
     }
