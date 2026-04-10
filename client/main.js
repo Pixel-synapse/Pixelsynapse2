@@ -1789,44 +1789,88 @@ function createTextures(scene) {
   ctx.strokeStyle = '#f0d890'; ctx.lineWidth = 2;
   ctx.strokeRect(29*S, 24*S, 3*S, 2*S);
 
-  // ── 4. BUILDINGS — placeHouseNearRoad pattern ──
-  // Houses placed at road-side intervals, offset perpendicular to road.
-  // Mirrors: placeHouseNearRoad(x, 25, 0, -3) etc.
+  // ── 4. BUILDINGS — neighbourhood blocks with connecting paths ──
   const markOcc = (tx, ty, tw, th) => {
     for (let r = 0; r < th; r++) for (let c = 0; c < tw; c++) occupied.add(`${tx+c},${ty+r}`);
   };
 
-  // Named buildings (interior system — fixed positions)
+  // Named buildings (fixed — for interior system)
   markOcc(5,5,6,5); markOcc(36,5,6,5); markOcc(5,36,7,5); markOcc(36,36,7,5);
-
   // Centre buildings
   markOcc(28,22,4,4); markOcc(32,24,4,4);
 
-  // placeHouseNearRoad — road-side house placement at every 6-tile interval
-  // Offset ±3 from road so houses sit just off the kerb
-  const rngH = (n) => { let x = Math.sin(n*73.1)*43758.5; return x-Math.floor(x); };
-  let hSeed = 0;
-  function placeHouseNearRoad(roadX, roadY, offX, offY) {
-    const tx = roadX + offX, ty = roadY + offY;
-    if (tx < 1 || ty < 1 || tx >= COLS-4 || ty >= ROWS-4) return;
-    if (roadSet.has(`${tx},${ty}`) || occupied.has(`${tx},${ty}`)) return;
-    markOcc(tx, ty, 4, 4);
+  // ── Helper: draw a short path from a road tile to a house door ──
+  // pathDir: 'N','S','E','W' — direction FROM road TO house
+  function drawHousePath(roadTx, roadTy, pathDir, length) {
+    for (let i = 1; i <= length; i++) {
+      let tx, ty;
+      if (pathDir === 'N') { tx = roadTx; ty = roadTy - i; }
+      else if (pathDir === 'S') { tx = roadTx; ty = roadTy + i; }
+      else if (pathDir === 'E') { tx = roadTx + i; ty = roadTy; }
+      else { tx = roadTx - i; ty = roadTy; }
+      if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) break;
+      drawPathTile(ctx, tx * S, ty * S);
+    }
   }
 
-  // Road-side houses — spacing=12 to prevent overlaps, offset=5 from road edge
-  // Skip tiles too close to plaza (cols 27-34, rows 22-28)
-  function nearPlaza(tx, ty) {
-    return tx >= 26 && tx <= 36 && ty >= 20 && ty <= 30;
+  // ── Helper: place a house in a block, mark it, draw connecting path ──
+  function placeBlockHouse(tx, ty, pathFrom, pathDir, pathLen) {
+    if (occupied.has(`${tx},${ty}`) || roadSet.has(`${tx},${ty}`)) return false;
+    markOcc(tx, ty, 5, 4);
+    // Draw connecting path from road to doorstep
+    drawHousePath(pathFrom[0], pathFrom[1], pathDir, pathLen);
+    return true;
   }
 
-  for (let tx = 8; tx < 50; tx += 12) {
-    if (!nearPlaza(tx, 20)) placeHouseNearRoad(tx, 25, 0, -5);
-    if (!nearPlaza(tx, 30)) placeHouseNearRoad(tx, 25, 0,  5);
-  }
-  for (let ty = 6; ty < 42; ty += 12) {
-    if (!nearPlaza(25, ty)) placeHouseNearRoad(30, ty, -5, 0);
-    if (!nearPlaza(36, ty)) placeHouseNearRoad(30, ty,  6, 0);  // right side: col 36
-  }
+  // ════════════════════════════════════════════════
+  // ════════════════════════════════════════════════
+  // NEIGHBOURHOOD BLOCKS — houses face streets with paths
+  // All positions verified zero-overlap by simulation.
+  // Each entry: [tx, ty, tw, th, pathFromX, pathFromY, pathDir, pathLen, bldgKey]
+  // ════════════════════════════════════════════════
+  const NEIGHBOURHOOD = [
+    // ── NORTH ROW 1 (y=19, facing main road@25) — path S, 5 tiles ──
+    [ 7,19,5,4,  9,24,'S',5, 'bld_cottage'  ],
+    [20,19,5,4, 22,24,'S',5, 'bld_inn'      ],
+    [38,19,5,4, 40,24,'S',5, 'bld_manor'    ],
+    // ── NORTH ROW 2 (y=11, facing side street@15) — path S, 3 tiles ──
+    [ 7,11,5,4,  9,14,'S',3, 'bld_farmhouse'],
+    [22,11,5,4, 24,14,'S',3, 'bld_tall'     ],
+    [38,11,5,4, 40,14,'S',3, 'bld_wide'     ],
+    // ── SOUTH ROW 1 (y=27, facing main road@25) — path N, 2 tiles ──
+    [ 7,27,5,4,  9,25,'N',2, 'bld_cottage'  ],
+    [20,27,5,4, 22,25,'N',2, 'bld_modern'   ],
+    [38,27,5,4, 40,25,'N',2, 'bld_corner'   ],
+    // ── SOUTH ROW 2 (y=31, facing side street@35) — path N, 4 tiles ──
+    [ 7,31,5,4,  9,34,'N',3, 'bld_inn'      ],
+    [22,31,5,4, 24,34,'N',3, 'bld_manor'    ],
+    [38,31,5,4, 40,34,'N',3, 'bld_farmhouse'],
+    // ── WEST (col 17, path E to side street@15, then on to main V@30) ──
+    [17, 7,3,4, 15, 9,'E',1, 'bld_workshop' ],
+    [17,18,3,4, 15,20,'E',1, 'bld_bakery'   ],
+    [17,29,3,4, 15,31,'E',1, 'bld_wide'     ],
+    [17,40,3,4, 15,42,'E',1, 'bld_chapel'   ],
+    // ── EAST (col 32, path W to main V@30) ──
+    [32,11,5,4, 31,13,'W',1, 'bld_manor'    ],
+    [32,18,5,4, 31,20,'W',1, 'bld_farmhouse'],
+    [32,28,5,4, 31,30,'W',1, 'bld_inn'      ],
+    // ── FAR EAST (col 46, path W to side street@45) ──
+    [46, 7,3,4, 45, 9,'W',1, 'bld_cottage'  ],
+    [46,19,3,4, 45,21,'W',1, 'bld_tall'     ],
+    [46,31,3,4, 45,33,'W',1, 'bld_workshop' ],
+  ];
+
+  NEIGHBOURHOOD.forEach(([tx, ty, tw, th, ptx, pty, pdir, plen, key]) => {
+    if (occupied.has(`${tx},${ty}`)) return;
+    markOcc(tx, ty, tw, th);
+    // Draw path tiles from road to doorstep
+    for (let i = 0; i < plen; i++) {
+      const px3 = ptx + (pdir === 'E' ? i : pdir === 'W' ? -i : 0);
+      const py3 = pty + (pdir === 'S' ? i : pdir === 'N' ? -i : 0);
+      if (px3 >= 0 && py3 >= 0 && px3 < COLS && py3 < ROWS)
+        drawPathTile(ctx, px3 * S, py3 * S);
+    }
+  });
 
   // ── 5. TREES — edge-only placement (reference doc: x<5||x>55||y<5||y>45) ──
   const treeShadows = [];
@@ -1927,6 +1971,9 @@ function createTextures(scene) {
     { key:'bld_modern',     w:60, h:76, roof:'#304080', wall:'#d8e8f8', type:'modern'     },
     { key:'bld_farmhouse',  w:88, h:68, roof:'#287848', wall:'#eef8e8', type:'farmhouse'  },
     { key:'bld_manor',      w:76, h:96, roof:'#481888', wall:'#f0e8f8', type:'manor'      },
+    { key:'bld_workshop',   w:80, h:72, roof:'#604020', wall:'#e8dcc8', type:'workshop'   },
+    { key:'bld_bakery',     w:64, h:68, roof:'#c84820', wall:'#f8e8d0', type:'bakery'     },
+    { key:'bld_chapel',     w:56, h:96, roof:'#283878', wall:'#f0f0f8', type:'chapel'     },
     // Named building textures
     { key:'house_red',      w:60, h:68, roof:'#e82020', wall:'#f0e8c0', type:'cottage'    },
     { key:'house_blue',     w:56, h:80, roof:'#2848c0', wall:'#e8eaf8', type:'tall'       },
@@ -1948,23 +1995,39 @@ function createTextures(scene) {
 
     // Wall texture varies by type
     if (type === 'modern') {
-      // Clean concrete — horizontal panel lines
       ctx2.fillStyle = darkenHex(wallCol, 8);
       for (let y = roofH+8; y < h; y += 10) ctx2.fillRect(2, y, w-4, 1);
     } else if (type === 'farmhouse') {
-      // Wooden plank siding — vertical lines
       ctx2.fillStyle = darkenHex(wallCol, 10);
       for (let x = 6; x < w; x += 7) ctx2.fillRect(x, roofH, 1, h-roofH-2);
-    } else if (type === 'manor') {
-      // Stone blocks — grid pattern
+    } else if (type === 'manor' || type === 'chapel') {
+      // Stone — large blocks
       ctx2.fillStyle = darkenHex(wallCol, 10);
       for (let y = roofH+5; y < h-2; y += 9) ctx2.fillRect(2, y, w-4, 1);
       for (let y = roofH+5, row = 0; y < h-2; y += 9, row++) {
         const off = row % 2 === 0 ? 0 : 12;
         for (let x = off; x < w; x += 24) ctx2.fillRect(x, y-8, 1, 8);
       }
+    } else if (type === 'workshop') {
+      // Corrugated metal + timber frame
+      ctx2.fillStyle = darkenHex(wallCol, 7);
+      for (let y = roofH+4; y < h; y += 5) ctx2.fillRect(1, y, w-2, 2);
+      ctx2.fillStyle = darkenHex(wallCol, 18);
+      ctx2.fillRect(Math.floor(w*0.5)-1, roofH, 2, h-roofH); // centre post
+      ctx2.fillRect(Math.floor(w*0.25)-1, roofH, 2, h-roofH);
+      ctx2.fillRect(Math.floor(w*0.75)-1, roofH, 2, h-roofH);
+    } else if (type === 'bakery') {
+      // Plaster with decorative tile border at waist height
+      ctx2.fillStyle = darkenHex(wallCol, 6);
+      const waist = roofH + Math.floor((h-roofH)*0.55);
+      ctx2.fillRect(2, waist, w-4, 2);
+      // Chequerboard border tiles
+      for (let x = 2; x < w-4; x += 4) {
+        ctx2.fillStyle = (Math.floor(x/4)%2===0) ? darkenHex(wallCol,14) : lightenHex(wallCol,10);
+        ctx2.fillRect(x, waist-3, 4, 3);
+      }
     } else {
-      // Brick — staggered mortar lines
+      // Brick — staggered mortar
       let row = 0;
       for (let y = roofH+5; y < h-2; y += 6, row++) {
         ctx2.fillStyle = darkenHex(wallCol, 9);
@@ -2021,6 +2084,48 @@ function createTextures(scene) {
         ctx2.fillRect(inset, i, w-inset*2, 2);
       }
       ctx2.fillStyle = lightenHex(roofCol, 28); ctx2.fillRect(w/2-2, 0, 4, 2);
+    } else if (type === 'workshop') {
+      // Sawtooth industrial roof (north-light roof pattern)
+      ctx2.fillStyle = roofCol; ctx2.fillRect(0, 0, w, roofH);
+      const teeth = 4;
+      const tw2 = Math.floor(w / teeth);
+      for (let t = 0; t < teeth; t++) {
+        const x0 = t * tw2;
+        ctx2.fillStyle = darkenHex(roofCol, 20);
+        ctx2.beginPath();
+        ctx2.moveTo(x0, roofH); ctx2.lineTo(x0, 2); ctx2.lineTo(x0+tw2, roofH);
+        ctx2.fill();
+        // Skylight on vertical face
+        ctx2.fillStyle = '#90c8f0';
+        ctx2.fillRect(x0+2, 4, tw2-8, roofH-8);
+      }
+      ctx2.fillStyle = lightenHex(roofCol, 20); ctx2.fillRect(0, 0, w, 2);
+    } else if (type === 'bakery') {
+      // Curved/barrel roof — awning stripes
+      ctx2.fillStyle = roofCol; ctx2.fillRect(0, 0, w, roofH);
+      for (let i = 0; i < 4; i++) {
+        ctx2.fillStyle = i%2===0 ? darkenHex(roofCol,12) : lightenHex(roofCol,18);
+        ctx2.fillRect(2, i*Math.floor(roofH/4), w-4, Math.floor(roofH/4));
+      }
+      // Round ventilation dome on top
+      ctx2.fillStyle = darkenHex(roofCol, 8);
+      ctx2.beginPath(); ctx2.arc(w/2, 2, 8, Math.PI, 0); ctx2.fill();
+      ctx2.fillStyle = '#f8d030'; // gilded top
+      ctx2.fillRect(w/2-1, -4, 2, 6);
+    } else if (type === 'chapel') {
+      // Tall pointed steeple roof
+      ctx2.fillStyle = roofCol; ctx2.fillRect(0, 0, w, roofH);
+      // Steep gable lines
+      ctx2.fillStyle = darkenHex(roofCol, 18);
+      for (let y = 0; y < roofH; y += 3) {
+        const inset = Math.floor(y * (w/2) / roofH);
+        ctx2.fillRect(inset, y, w-inset*2, 2);
+      }
+      // Spire/cross on peak
+      ctx2.fillStyle = darkenHex(roofCol, 25); ctx2.fillRect(w/2-1, -12, 2, 14);
+      ctx2.fillRect(w/2-5, -9, 10, 2); // cross bar
+      ctx2.fillStyle = '#f8d030';
+      ctx2.fillRect(w/2-1, -14, 3, 3); // gold finial
     } else {
       // Gabled pitched roof — tile rows with stagger + chimney
       ctx2.fillStyle = darkenHex(roofCol, 14);
@@ -2095,19 +2200,72 @@ function createTextures(scene) {
         ctx2.fillStyle = '#f8d030'; ctx2.fillRect(wx2+5, winY+11, 3, 2);
         ctx2.fillStyle = '#289048'; ctx2.fillRect(wx2+9, winY+11, 3, 2);
       });
-    } else if (type === 'manor') {
-      // Arched windows (manor style)
-      [[8, winY], [w-22, winY]].forEach(([wx2, wy2]) => {
-        // Arch frame
+    } else if (type === 'manor' || type === 'chapel') {
+      // Arched windows
+      const winPairs = type === 'chapel'
+        ? [[Math.floor(w/2)-7, winY]]                    // chapel: single centred arch
+        : [[8, winY], [w-22, winY]];                     // manor: two arched windows
+      winPairs.forEach(([wx2, wy2]) => {
         ctx2.fillStyle = '#201828'; ctx2.fillRect(wx2-1, wy2-1, 15, 15);
-        // Arch shape: rectangle + semicircle top
         ctx2.fillStyle = '#90b0e0'; ctx2.fillRect(wx2, wy2+4, 13, 9);
         ctx2.fillStyle = '#a8c8f8';
         ctx2.beginPath(); ctx2.arc(wx2+6, wy2+4, 6, Math.PI, 0); ctx2.fill();
         ctx2.fillStyle = '#d0e8ff'; ctx2.fillRect(wx2+1, wy2+5, 5, 3);
-        // Divider
         ctx2.fillStyle = '#201828'; ctx2.fillRect(wx2+6, wy2, 1, 13);
       });
+      if (type === 'chapel') {
+        // Rose window above arch (circular)
+        ctx2.fillStyle = '#f8d030';
+        ctx2.beginPath(); ctx2.arc(w/2, winY-14, 7, 0, Math.PI*2); ctx2.fill();
+        ctx2.fillStyle = '#f86030';
+        ctx2.beginPath(); ctx2.arc(w/2, winY-14, 5, 0, Math.PI*2); ctx2.fill();
+        ctx2.fillStyle = '#f8e030';
+        ctx2.beginPath(); ctx2.arc(w/2, winY-14, 2, 0, Math.PI*2); ctx2.fill();
+        // Spoke lines
+        ctx2.fillStyle = '#201828';
+        for (let a = 0; a < 6; a++) {
+          const rad = (a / 6) * Math.PI * 2;
+          ctx2.fillRect(
+            Math.round(w/2 + Math.cos(rad)*2)-1, Math.round(winY-14+Math.sin(rad)*2)-1, 2, 2
+          );
+        }
+      }
+    } else if (type === 'workshop') {
+      // Large industrial windows — two wide on ground floor
+      [[5, winY], [Math.floor(w/2)+3, winY]].forEach(([wx2, wy2]) => {
+        const ww2 = Math.floor(w/2) - 10;
+        ctx2.fillStyle = '#181820'; ctx2.fillRect(wx2-1, wy2-1, ww2+2, 14);
+        ctx2.fillStyle = '#a0c8e8'; ctx2.fillRect(wx2, wy2, ww2, 12);
+        ctx2.fillStyle = '#c8e0f8'; ctx2.fillRect(wx2+1, wy2+1, 6, 5);
+        // Grid of panes
+        for (let gx = wx2+ww2/3; gx < wx2+ww2; gx += ww2/3) {
+          ctx2.fillStyle = '#181820'; ctx2.fillRect(Math.round(gx), wy2, 1, 12);
+        }
+        ctx2.fillStyle = '#181820'; ctx2.fillRect(wx2, wy2+6, ww2, 1);
+      });
+      // Ventilation fan / loading door indicator
+      ctx2.fillStyle = darkenHex(wallCol, 15);
+      ctx2.fillRect(w/2-8, h-22, 16, 16);
+      ctx2.fillStyle = '#404040';
+      ctx2.beginPath(); ctx2.arc(w/2, h-14, 6, 0, Math.PI*2); ctx2.fill();
+      ctx2.fillStyle = '#808080';
+      ctx2.beginPath(); ctx2.arc(w/2, h-14, 3, 0, Math.PI*2); ctx2.fill();
+    } else if (type === 'bakery') {
+      // Warm display window with bread/goods silhouettes
+      const ww3 = w - 18;
+      ctx2.fillStyle = '#281808'; ctx2.fillRect(8, winY, ww3, 18);
+      ctx2.fillStyle = '#f0c060'; ctx2.fillRect(10, winY+2, ww3-4, 14); // warm golden glow
+      ctx2.fillStyle = '#f8e090'; ctx2.fillRect(11, winY+3, 8, 6);
+      // Bread/pastry silhouettes in window
+      ctx2.fillStyle = '#c07030';
+      ctx2.beginPath(); ctx2.arc(16, winY+12, 4, 0, Math.PI*2); ctx2.fill();
+      ctx2.beginPath(); ctx2.arc(24, winY+11, 3, 0, Math.PI*2); ctx2.fill();
+      ctx2.beginPath(); ctx2.arc(32, winY+12, 4, 0, Math.PI*2); ctx2.fill();
+      ctx2.fillStyle = '#281808'; ctx2.fillRect(8+ww3/2-1, winY, 2, 18); // divider
+      // Sign above window
+      ctx2.fillStyle = '#c07030'; ctx2.fillRect(6, winY-10, ww3+4, 8);
+      ctx2.fillStyle = '#f8f0d0';
+      ctx2.fillRect(10, winY-9, ww3-4, 6);
     } else {
       // cottage / corner / inn — two windows with flower boxes
       [[5, winY], [w-19, winY]].forEach(([wx2, wy2]) => {
@@ -2129,16 +2287,19 @@ function createTextures(scene) {
 
     // ── DOOR — unique style per type ──
     const doorStyles = {
-      cottage:   { w:10, h:16, col:'#c07030', style:'arched' },
-      tall:      { w: 8, h:18, col:'#804010', style:'narrow' },
-      wide:      { w:14, h:15, col:'#a06020', style:'double' },
-      corner:    { w:12, h:17, col:'#c07030', style:'framed' },
-      inn:       { w:16, h:20, col:'#805020', style:'double' },
-      modern:    { w:10, h:17, col:'#304080', style:'glass'  },
-      farmhouse: { w:14, h:16, col:'#806040', style:'barn'   },
-      manor:     { w:14, h:22, col:'#481888', style:'grand'  },
-      shop:      { w:14, h:20, col:'#289048', style:'double' },
-      townhall:  { w:14, h:22, col:'#f8a030', style:'grand'  },
+      cottage:   { w:10, h:16, col:'#c07030', style:'arched'   },
+      tall:      { w: 8, h:18, col:'#804010', style:'narrow'   },
+      wide:      { w:14, h:15, col:'#a06020', style:'double'   },
+      corner:    { w:12, h:17, col:'#c07030', style:'framed'   },
+      inn:       { w:16, h:20, col:'#805020', style:'double'   },
+      modern:    { w:10, h:17, col:'#304080', style:'glass'    },
+      farmhouse: { w:14, h:16, col:'#806040', style:'barn'     },
+      manor:     { w:14, h:22, col:'#481888', style:'grand'    },
+      shop:      { w:14, h:20, col:'#289048', style:'double'   },
+      townhall:  { w:14, h:22, col:'#f8a030', style:'grand'    },
+      workshop:  { w:18, h:20, col:'#604020', style:'barn'     },  // wide sliding barn door
+      bakery:    { w:12, h:18, col:'#c84820', style:'arched'   },  // warm arched bakery door
+      chapel:    { w:14, h:24, col:'#283878', style:'grand'    },  // tall gothic church door
     };
     const ds = doorStyles[type] || doorStyles.cottage;
     const dx = Math.floor(w/2) - Math.floor(ds.w/2);
@@ -2458,7 +2619,7 @@ function spawnCityWorldObjects(scene) {
     // Helper — add visible image + collision + isTop + door
     const rngH2 = (n) => { let x = Math.sin(n*73.1)*43758.5; return x-Math.floor(x); };
     let hSeed2 = 0;
-    // All 8 unique building styles — each has distinct dimensions from BUILDING_STYLES
+    // All 11 unique building styles
     const roadBldgTypes = [
       { key:'bld_cottage',   w:60, h:64 },
       { key:'bld_tall',      w:48, h:88 },
@@ -2468,69 +2629,63 @@ function spawnCityWorldObjects(scene) {
       { key:'bld_modern',    w:60, h:76 },
       { key:'bld_farmhouse', w:88, h:68 },
       { key:'bld_manor',     w:76, h:96 },
+      { key:'bld_workshop',  w:80, h:72 },
+      { key:'bld_bakery',    w:64, h:68 },
+      { key:'bld_chapel',    w:56, h:96 },
+    ];
+    // Map key → dimensions for lookup
+    const bldgDimMap = {};
+    roadBldgTypes.forEach(b => { bldgDimMap[b.key] = b; });
+
+    // Mirrors createTextures NEIGHBOURHOOD array exactly
+    const NEIGHBOURHOOD_COLLIDERS = [
+      [ 7,19,5,4,'bld_cottage'  ], [20,19,5,4,'bld_inn'      ], [38,19,5,4,'bld_manor'    ],
+      [ 7,11,5,4,'bld_farmhouse'], [22,11,5,4,'bld_tall'     ], [38,11,5,4,'bld_wide'     ],
+      [ 7,27,5,4,'bld_cottage'  ], [20,27,5,4,'bld_modern'   ], [38,27,5,4,'bld_corner'   ],
+      [ 7,31,5,4,'bld_inn'      ], [22,31,5,4,'bld_manor'    ], [38,31,5,4,'bld_farmhouse'],
+      [17, 7,3,4,'bld_workshop' ], [17,18,3,4,'bld_bakery'   ], [17,29,3,4,'bld_wide'     ], [17,40,3,4,'bld_chapel'   ],
+      [32,11,5,4,'bld_manor'    ], [32,18,5,4,'bld_farmhouse'], [32,28,5,4,'bld_inn'      ],
+      [46, 7,3,4,'bld_cottage'  ], [46,19,3,4,'bld_tall'     ], [46,31,3,4,'bld_workshop' ],
     ];
 
-    function addBldgCollider(tx2, ty2) {
-      if (tx2 < 1 || ty2 < 1 || tx2 >= COLS-5 || ty2 >= ROWS-5) return;
-      if (roadSet2.has(`${tx2},${ty2}`) || occupied2.has(`${tx2},${ty2}`)) return;
-
-      // Pick unique style — cycle through all 8 so each placed house looks different
-      hSeed2++;
-      const bldgDef = roadBldgTypes[hSeed2 % roadBldgTypes.length];
-      const { key, w: bpxW, h: bpxH } = bldgDef;
-
-      // Display size matches canvas pixel size (1:1, no scaling — Phaser scales via setDisplaySize)
+    function spawnBldg(tx2, ty2, tw, th, key) {
+      const def = bldgDimMap[key] || { w:64, h:64 };
       const px = tx2*T, py = ty2*T;
-      // Use actual pixel dimensions from the building style
-      const bw = bpxW, bh = bpxH;
+      const bw = def.w, bh = def.h;
 
-      // Mark footprint in tile space (approx tile count)
-      const tw = Math.ceil(bw / T), th = Math.ceil(bh / T);
-      for (let r = 0; r < th; r++) for (let c = 0; c < tw; c++) occupied2.add(`${tx2+c},${ty2+r}`);
-
-      // Visible base image — sized to match building canvas exactly
-      const bi = scene.add.image(px, py, key).setOrigin(0,0).setDisplaySize(bw, bh).setDepth(py+bh);
+      // Base image — Y-sorted
+      const bi = scene.add.image(px, py, key).setOrigin(0,0).setDisplaySize(bw,bh).setDepth(py+bh);
       gameState.worldObjects.push(bi);
-
-      // Roof isTop image — top 36% of building
-      const roofPx = Math.round(bh * 0.36);
+      // Roof isTop
+      const roofPx = Math.round(bh*0.36);
       const ri = scene.add.image(px, py, key).setOrigin(0,0)
-        .setDisplaySize(bw, roofPx)
-        .setCrop(0, 0, bpxW, Math.round(bpxH * 0.36));
+        .setDisplaySize(bw, roofPx).setCrop(0, 0, def.w, Math.round(def.h*0.36));
       ri.isTop = true; ri.setDepth(py+1000);
       gameState.worldObjects.push(ri); gameState._topObjects.push(ri);
-
-      // Collision (upper 60% of display height)
-      const collH = Math.round(bh * 0.60);
+      // Collision
+      const collH = Math.round(bh*0.60);
       const cb = scene.physics.add.staticImage(px+bw/2, py+collH/2, null).setVisible(false);
       cb.setDisplaySize(bw-4, collH); cb.refreshBody();
       gameState.worldObjects.push(cb); gameState.buildingGroup.add(cb);
-
-      // Door zone at base
+      // Door
       const dz = gameState.doorGroup.create(px+bw/2, py+bh, null);
-      dz.setSize(40, 28).setOrigin(0.5,0.5).setVisible(false).refreshBody();
+      dz.setSize(44,28).setOrigin(0.5,0.5).setVisible(false).refreshBody();
       dz.houseId    = 'house_nw';
-      dz.houseLabel = 'HOUSE';
-      dz.returnX    = px+bw/2; dz.returnY = py+bh+28;
+      dz.houseLabel = key === 'bld_bakery' ? 'BAKERY'
+                    : key === 'bld_workshop' ? 'WORKSHOP'
+                    : key === 'bld_chapel' ? 'CHAPEL'
+                    : key === 'bld_inn' ? 'INN' : 'HOUSE';
+      dz.returnX = px+bw/2; dz.returnY = py+bh+28;
       gameState.worldObjects.push(dz);
     }
 
-    // Centre buildings — placed explicitly then marked occupied before loops run
-    addBldgCollider(28, 22); addBldgCollider(32, 24);
-    // (occupied2 already has these tiles from markOcc2 above, but addBldgCollider
-    //  runs first and marks them itself via the 4×4 loop — the markOcc2 above is
-    //  just a belt-and-suspenders guard for the named buildings)
+    // Spawn all neighbourhood buildings
+    NEIGHBOURHOOD_COLLIDERS.forEach(([tx2,ty2,tw,th,key]) => spawnBldg(tx2,ty2,tw,th,key));
 
-    // Road-side houses — matches createTextures (spacing=12, offset=5, skip near plaza)
-    const nearPlaza2 = (tx, ty) => tx >= 26 && tx <= 36 && ty >= 20 && ty <= 30;
-    for (let tx = 8; tx < 50; tx += 12) {
-      if (!nearPlaza2(tx, 20)) addBldgCollider(tx, 20);
-      if (!nearPlaza2(tx, 30)) addBldgCollider(tx, 30);
-    }
-    for (let ty = 6; ty < 42; ty += 12) {
-      if (!nearPlaza2(25, ty)) addBldgCollider(25, ty);
-      if (!nearPlaza2(36, ty)) addBldgCollider(36, ty);
-    }
+    // Centre buildings (plaza area)
+    spawnBldg(28, 22, 5, 4, 'bld_corner');
+    spawnBldg(32, 24, 5, 4, 'bld_modern');
+
   }
 
   // ════════════════════════════════════════════════
